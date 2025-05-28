@@ -1,0 +1,54 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: packagepolicies.transition.dcnlab.ssu.ac.kr
+spec:
+  group: transition.dcnlab.ssu.ac.kr
+  names:
+    kind: PackagePolicy
+    listKind: PackagePolicyList
+    plural: packagepolicies
+    singular: packagepolicy
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: PackagePolicy is the Schema for the packagepolicies API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PackagePolicySpec defines the desired state of PackagePolicy.
+            properties:
+              foo:
+                description: Foo is an example field of PackagePolicy. Edit packagepolicy_types.go
+                  to remove/update
+                type: string
+            type: object
+          status:
+            description: PackagePolicyStatus defines the observed state of PackagePolicy.
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

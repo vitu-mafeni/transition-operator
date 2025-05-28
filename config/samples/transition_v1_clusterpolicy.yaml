@@ -1,0 +1,26 @@
+# propagationpolicy-update.yaml
+apiVersion: transition.dcnlab.ssu.ac.kr/v1
+kind: ClusterPolicy
+metadata:
+  name: clusterpolicy-sample
+spec:
+  clusterSelector:
+    name: edge
+    repo: http://example.com/nephio/
+    repoType: git
+  selectMode: specific # specific, all, or none
+  transitionMode: manual # automatic, manual, or none
+  packageSelectors:
+    - name: nephio-webui
+      packagePath: catalog/nephio/optional/webui
+      packageType: stateful
+      selected: true
+  packageRetentionPolicy:
+    retainOnSource: false
+    deleteAfterTransition: true
+  targetClusterPolicy:
+    preferClusters:
+      - core
+    avoidClusters:
+      - dev-local
+

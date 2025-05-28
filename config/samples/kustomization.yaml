@@ -1,0 +1,5 @@
+## Append samples of your project ##
+resources:
+- transition_v1_packagepolicy.yaml
+- transition_v1_clusterpolicy.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

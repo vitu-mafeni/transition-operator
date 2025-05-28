@@ -1,0 +1,92 @@
+/*
+Copyright 2025.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package v1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
+// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+
+// ClusterPolicySpec defines the desired state of ClusterPolicy.
+type ClusterPolicySpec struct {
+	ClusterSelector        ClusterSelector        `json:"clusterSelector"`
+	SelectMode             string                 `json:"selectMode"`     // specific, all, or none
+	TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
+	PackageSelectors       []PackageSelector      `json:"packageSelectors,omitempty"`
+	PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
+	TargetClusterPolicy    TargetClusterPolicy    `json:"targetClusterPolicy,omitempty"`
+}
+
+// ClusterSelector specifies the source cluster
+type ClusterSelector struct {
+	Name     string `json:"name"`
+	Repo     string `json:"repo"`
+	RepoType string `json:"repoType"` // e.g., git, helm
+}
+
+// PackageSelector defines individual package selection criteria
+type PackageSelector struct {
+	Name        string `json:"name"`
+	PackagePath string `json:"packagePath"`
+	PackageType string `json:"packageType"` // e.g., stateful, stateless
+	Selected    bool   `json:"selected"`
+}
+
+// PackageRetentionPolicy defines rules for source cleanup after transition
+type PackageRetentionPolicy struct {
+	RetainOnSource        bool `json:"retainOnSource"`
+	DeleteAfterTransition bool `json:"deleteAfterTransition"`
+}
+
+// TargetClusterPolicy defines preferences and avoid rules for target clusters
+type TargetClusterPolicy struct {
+	PreferClusters []string `json:"preferClusters,omitempty"`
+	AvoidClusters  []string `json:"avoidClusters,omitempty"`
+}
+
+// ClusterPolicyStatus defines the observed state of ClusterPolicy.
+type ClusterPolicyStatus struct {
+	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+	// Important: Run "make" to regenerate code after modifying this file
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+
+// ClusterPolicy is the Schema for the clusterpolicies API.
+type ClusterPolicy struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   ClusterPolicySpec   `json:"spec,omitempty"`
+	Status ClusterPolicyStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// ClusterPolicyList contains a list of ClusterPolicy.
+type ClusterPolicyList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []ClusterPolicy `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(&ClusterPolicy{}, &ClusterPolicyList{})
+}
