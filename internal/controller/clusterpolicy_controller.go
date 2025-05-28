@@ -82,18 +82,18 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	}
 
 	//get the clusters
-	for _, cluster := range clusterList.Items {
+	for _, workload_cluster := range clusterList.Items {
 		// log.Info("Cluster found", "name", cluster.Name, "namespace", cluster.Namespace)
 		// log.Info("Cluster details", "spec", cluster.Spec, "status", cluster.Status)
 		// You can add logic here to process each cluster as needed
-		if clusterPolicy.Spec.ClusterSelector.Name == cluster.Name {
+		if clusterPolicy.Spec.ClusterSelector.Name == workload_cluster.Name {
 			// log.Info("Cluster matches ClusterPolicy selector", "cluster", cluster.Name)
 			// Perform actions based on the matching cluster
 			// For example, you can update the ClusterPolicy status or perform other operations
-			r.performClusterPolicyActions(ctx, clusterPolicy, &cluster, req)
+			r.performWorkloadClusterPolicyActions(ctx, clusterPolicy, &workload_cluster, req)
 			// log.Info("Performed actions for matching cluster", "cluster", cluster.Name)
 		} else {
-			log.Info("Cluster does not match ClusterPolicy selector", "cluster", cluster.Name)
+			log.Info("Cluster does not match ClusterPolicy selector", "cluster", workload_cluster.Name)
 
 		}
 	}
@@ -105,7 +105,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 }
 
-func (r *ClusterPolicyReconciler) performClusterPolicyActions(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, cluster *capiv1beta1.Cluster, req ctrl.Request) {
+func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, cluster *capiv1beta1.Cluster, req ctrl.Request) {
 	//get cluster pods and machines
 	log := logf.FromContext(ctx)
 	log.Info("Performing actions for ClusterPolicy", "policy", clusterPolicy.Name, "cluster", cluster.Name)
@@ -143,11 +143,11 @@ func (r *ClusterPolicyReconciler) performClusterPolicyActions(ctx context.Contex
 
 	}
 
-	r.handlePodsInCluster(ctx, capiCluster, cluster)
+	r.handlePodsInWorkloadCluster(ctx, capiCluster, cluster)
 
 }
 
-func (r *ClusterPolicyReconciler) handlePodsInCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
+func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
 	log := logf.FromContext(ctx)
 	// get all pods in the cluster
 	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
