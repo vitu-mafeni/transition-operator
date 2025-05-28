@@ -83,6 +83,7 @@
   ```
 
   ### A2. ControlPlane Ready?
+  ```text
   cp := fetch KubeadmControlPlane (or equivalent)
   if cp.Status.ReadyReplicas < cp.Spec.Replicas OR
      cp.HasCondition(“Initialized” or “Ready”, != True):
@@ -90,7 +91,9 @@
     if age(cp) > policy.ControlPlaneTimeout:
       triggerControlPlaneRecovery(cp)
     return
+  ```
 ## B. Machine Recovery
+  ```text
   machines ← list Machines with label cluster-name=cluster.Name
   for each m in machines:
     if m.Status.Phase != “Running” OR
@@ -101,7 +104,10 @@
       else:
         delete m  # triggers MachineSet/MachineDeployment to recreate
         emit Metric “machine_deleted_total”
+  ```
+
 ## C. Node Recovery
+ ```text
   nodes ← list corev1.Node in all namespaces
   for each n in nodes:
     if !n.IsReady():
@@ -112,7 +118,10 @@
           emit Metric “node_replaced_total”
         else:
           log “Node without Machine—manual intervention”
+  ```
+
 ## D. Pod-Level Recovery
+    ```text
   pods ← list corev1.Pod in all namespaces
   for each p in pods:
     if p.Status.Phase == “Failed” OR
@@ -128,8 +137,10 @@
           delete p
       else:
         log “Pod unmanaged or unknown owner—alert”
+    ```
 ## E. Workload-Resource Health
   for each workload in {Deployment, StatefulSet, DaemonSet}:
+  ```text
     wsList ← list workload in all namespaces
     for each ws in wsList:
       if ws.Status.ReadyReplicas < ws.Spec.Replicas:
@@ -137,9 +148,12 @@
           annotate ws: “recovery.nephio.io/restarted=true”
           delete pods of ws  # force rollout retry
           emit Metric “workload_rollout_restarted_total”
+   ```
 ## F. Loop & Backoff
   ## At end of each full pass:
+  ```text
   if any recovery actions performed:
     requeue after policy.ShortInterval  # e.g. 30s
   else:
     requeue after policy.LongInterval   # e.g. 5m
+  ```
