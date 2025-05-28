@@ -147,7 +147,30 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 }
 
 func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
-	panic("unimplemented")
+	log := logf.FromContext(ctx)
+	// get all pods in the cluster
+	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
+		return
+	}
+	if !ready {
+		log.Info("Cluster is not ready", "cluster", capiCluster.GetClusterName())
+		return
+	}
+
+	nodeList := &corev1.NodeList{}
+	if err := clusterClient.List(ctx, nodeList); err != nil {
+		log.Error(err, "Failed to list pods for cluster", "cluster", cluster.Name)
+		return
+	}
+	log.Info("Found nodes in cluster", "count", len(nodeList.Items))
+	//list all pods in the cluster
+	for _, node := range nodeList.Items {
+		log.Info("Node found", "name", node.Name, "status", node.Status.Phase, "addresses", node.Status.Addresses)
+		//get node type, control-plane or worker
+
+	}
 }
 
 func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
