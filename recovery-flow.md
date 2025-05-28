@@ -121,7 +121,7 @@
   ```
 
 ## D. Pod-Level Recovery
-    ```text
+  ```text
   pods ← list corev1.Pod in all namespaces
   for each p in pods:
     if p.Status.Phase == “Failed” OR
@@ -137,7 +137,7 @@
           delete p
       else:
         log “Pod unmanaged or unknown owner—alert”
-    ```
+ ```
 ## E. Workload-Resource Health
   for each workload in {Deployment, StatefulSet, DaemonSet}:
   ```text
