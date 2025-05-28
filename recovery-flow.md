@@ -74,11 +74,13 @@
 ---
 ## A. Infra & Control-Plane Sanity
   ### A1. InfraCluster Ready?
+  ```text
   infra := fetch InfraCluster for cluster
   if err or infra.Status.Ready != True:
     log error or “Infra not ready”
     annotate ClusterPolicy: “InfraUnready”
     return
+  ```
 
   ### A2. ControlPlane Ready?
   cp := fetch KubeadmControlPlane (or equivalent)
