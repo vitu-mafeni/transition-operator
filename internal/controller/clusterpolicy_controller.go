@@ -115,9 +115,6 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 	if err != nil {
 		log.Error(err, "Failed to get CAPI cluster")
 		return
-	} else if capiCluster != nil {
-		log.Info("Got CAPI cluster", "cluster", capiCluster.GetClusterName())
-		// You can now use capiCluster methods, e.g. capiCluster.GetClusterClient(ctx)
 	}
 
 	//get cluster status
@@ -138,13 +135,19 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 		log.Info("Machine found", "name", machine.Name, "status", machine.Status.Phase)
 		//check
 		if machine.Status.Phase != "Running" {
-			r.recoverClusterMachine(ctx, clusterPolicy, &machine, req)
+			r.handleWorkloadClusterMachine(ctx, clusterPolicy, &machine, req)
 		}
 
 	}
 
+	r.handleNodesInWorkloadCluster(ctx, capiCluster, cluster)
+
 	r.handlePodsInWorkloadCluster(ctx, capiCluster, cluster)
 
+}
+
+func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
+	panic("unimplemented")
 }
 
 func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
@@ -175,7 +178,7 @@ func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Contex
 
 // this metthod is called when a machine is not running
 // it should recover the machine by checking the cluster status and applying the cluster policy
-func (r *ClusterPolicyReconciler) recoverClusterMachine(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, machine *capiv1beta1.Machine, req ctrl.Request) {
+func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, machine *capiv1beta1.Machine, req ctrl.Request) {
 	panic("unimplemented")
 }
 
