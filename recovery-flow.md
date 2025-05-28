@@ -1,5 +1,5 @@
 
-# 🔁 Kubernetes Recovery Operator – Logic Flow
+## 🔁 Kubernetes Recovery Operator – Logic Flow
 
 ```text
 [ Start recovery loop ]
@@ -46,8 +46,9 @@
 |    |-- No: Alert / reapply CRDs or reinstall operator
 |
 [ Repeat loop every N seconds based on ClusterPolicy ]
----
-[ Start recovery loop ]
+```
+<!-- --- -->
+<!-- [ Start recovery loop ]
 |
 |-- Check CAPI Cluster: Ready?
 |    |-- No: Check if stuck due to infra or control plane
@@ -67,19 +68,19 @@
 |-- List Deployments/DaemonSets/StatefulSets
 |    |-- .readyReplicas < .replicas -> investigate
 |
-[ Repeat ]
+[ Repeat ] -->
 
 
 ---
-# A. Infra & Control-Plane Sanity
-  ## A1. InfraCluster Ready?
+## A. Infra & Control-Plane Sanity
+  ### A1. InfraCluster Ready?
   infra := fetch InfraCluster for cluster
   if err or infra.Status.Ready != True:
     log error or “Infra not ready”
     annotate ClusterPolicy: “InfraUnready”
     return
 
-  ## A2. ControlPlane Ready?
+  ### A2. ControlPlane Ready?
   cp := fetch KubeadmControlPlane (or equivalent)
   if cp.Status.ReadyReplicas < cp.Spec.Replicas OR
      cp.HasCondition(“Initialized” or “Ready”, != True):
@@ -87,7 +88,7 @@
     if age(cp) > policy.ControlPlaneTimeout:
       triggerControlPlaneRecovery(cp)
     return
-# B. Machine Recovery
+## B. Machine Recovery
   machines ← list Machines with label cluster-name=cluster.Name
   for each m in machines:
     if m.Status.Phase != “Running” OR
@@ -98,7 +99,7 @@
       else:
         delete m  # triggers MachineSet/MachineDeployment to recreate
         emit Metric “machine_deleted_total”
-# C. Node Recovery
+## C. Node Recovery
   nodes ← list corev1.Node in all namespaces
   for each n in nodes:
     if !n.IsReady():
@@ -109,7 +110,7 @@
           emit Metric “node_replaced_total”
         else:
           log “Node without Machine—manual intervention”
-# D. Pod-Level Recovery
+## D. Pod-Level Recovery
   pods ← list corev1.Pod in all namespaces
   for each p in pods:
     if p.Status.Phase == “Failed” OR
@@ -125,7 +126,7 @@
           delete p
       else:
         log “Pod unmanaged or unknown owner—alert”
-# E. Workload-Resource Health
+## E. Workload-Resource Health
   for each workload in {Deployment, StatefulSet, DaemonSet}:
     wsList ← list workload in all namespaces
     for each ws in wsList:
@@ -134,7 +135,7 @@
           annotate ws: “recovery.nephio.io/restarted=true”
           delete pods of ws  # force rollout retry
           emit Metric “workload_rollout_restarted_total”
-# F. Loop & Backoff
+## F. Loop & Backoff
   ## At end of each full pass:
   if any recovery actions performed:
     requeue after policy.ShortInterval  # e.g. 30s
