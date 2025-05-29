@@ -31,6 +31,7 @@ import (
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	corev1 "k8s.io/api/core/v1"
@@ -253,10 +254,7 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 						if _, ok := pod.Labels["transition.dcnlab.ssu.ac.kr/cluster-policy"]; ok &&
 							pod.Labels["transition.dcnlab.ssu.ac.kr/package-name"] == transitionPackage.Name {
 							log.Info("Pod part of transition package label, applying transition policy", "pod", pod.Name, "package", transitionPackage.Name)
-							if pod.Status.Phase != corev1.PodRunning {
-								log.Info("transition this", "pod", pod.Name)
-
-							}
+							r.TransitionWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
 						}
 					}
 				}
@@ -271,6 +269,14 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 
 		}
 	}
+}
+
+func (r *ClusterPolicyReconciler) TransitionWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
+
+	log := logf.FromContext(ctx)
+	log.Info("Transitioning workload", "pod", pod.Name, "package", transitionPackage.Name)
+	//create argocd application resource
+
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {

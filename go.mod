@@ -11,7 +11,16 @@ require (
 )
 
 require (
+	github.com/42wim/httpsig v1.2.2 // indirect
+	github.com/davidmz/go-pageant v1.0.2 // indirect
+	github.com/go-fed/httpsig v1.1.0 // indirect
+	github.com/hashicorp/go-version v1.7.0 // indirect
+	golang.org/x/crypto v0.36.0 // indirect
+)
+
+require (
 	cel.dev/expr v0.19.1 // indirect
+	code.gitea.io/sdk/gitea v0.21.0
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
