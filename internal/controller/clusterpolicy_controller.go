@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"encoding/base64"
 	"time"
 
 	"code.gitea.io/sdk/gitea"
@@ -316,6 +317,11 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 		log.Error(err, "Failed to list repositories", "response", resp)
 		return
 	}
+	//this should be the last repo in the list
+	if len(repos) == 0 {
+		log.Info("No repositories found for user", "username", user.UserName)
+		return
+	}
 
 	// Log found repositories
 	for _, repo := range repos {
@@ -323,8 +329,58 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			"name", repo.Name,
 			"full_name", repo.FullName,
 			"clone_url", repo.CloneURL,
+			"html_url", repo.HTMLURL,
 			"default_branch", repo.DefaultBranch)
+
 	}
+
+	// Create nginx deployment content
+	nginxDeployment := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+`
+
+	// Create or update the file in the repository
+	// Encode the deployment content as base64
+	encodedContent := base64.StdEncoding.EncodeToString([]byte(nginxDeployment))
+
+	fileOpts := gitea.CreateFileOptions{
+		Content: encodedContent,
+		FileOptions: gitea.FileOptions{
+			Message:    "Add nginx deployment",
+			BranchName: "main", // or repo.DefaultBranch
+		},
+	}
+
+	// Try to create/update the file
+	_, resp, err = giteaClient.Get().CreateFile(user.UserName, repos[0].Name, "deployments/nginx.yaml", fileOpts)
+	if err != nil {
+		log.Error(err, "Failed to create file in repository", "response", resp)
+		return
+	}
+
+	log.Info("Successfully pushed nginx deployment to repository",
+		"repo", repos[0].FullName,
+		"file", "deployments/nginx.yaml")
+
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {
