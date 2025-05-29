@@ -22,6 +22,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -119,7 +120,7 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 
 	//get cluster status
 	if cluster.Status.Phase != "Provisioned" {
-		log.Info("Cluster is not ready yet to apply cluster policy", "cluster", cluster.Name)
+		log.Info("Cluster is not ready or not provisioned yet to apply cluster policy", "cluster", cluster.Name)
 		return
 	}
 
@@ -135,7 +136,7 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 		log.Info("Machine found", "name", machine.Name, "status", machine.Status.Phase)
 		//check
 		if machine.Status.Phase != "Running" {
-			r.handleWorkloadClusterMachine(ctx, clusterPolicy, &machine, req)
+			r.handleWorkloadClusterMachine(ctx, clusterPolicy, capiCluster, &machine, req)
 		}
 
 	}
@@ -201,8 +202,75 @@ func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Contex
 
 // this metthod is called when a machine is not running
 // it should recover the machine by checking the cluster status and applying the cluster policy
-func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, machine *capiv1beta1.Machine, req ctrl.Request) {
-	panic("unimplemented")
+func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, machine *capiv1beta1.Machine, req ctrl.Request) {
+	log := logf.FromContext(ctx)
+	log.Info("Handling machine in workload cluster", "machine", machine.Name, "status", machine.Status.Phase)
+
+	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
+		return
+	}
+	if !ready {
+		log.Info("Cluster is not ready", "cluster", capiCluster.GetClusterName())
+		return
+	}
+
+	node := &corev1.Node{}
+	if err := clusterClient.Get(ctx, types.NamespacedName{Name: machine.Name}, node); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Error(err, "Node not found", "node", machine.Name)
+			node = nil // Explicitly set node to nil if not found
+		} else {
+			log.Error(err, "Failed to get node", "node", machine.Name)
+			return
+		}
+	}
+
+	// Determine if it's a control plane machine
+	if machine.Labels["cluster.x-k8s.io/cluster-name"] == clusterPolicy.Spec.ClusterSelector.Name {
+		log.Info("Control plane machine found", "machine", machine.Name)
+
+	} else {
+		log.Info("Worker machine found", "machine", machine.Name)
+
+		if machine.Status.Phase == "Failed" || machine.Status.Phase == "Unknown" || (node == nil || (node.Status.Phase != corev1.NodeRunning)) {
+			log.Info("Machine is not running, applying cluster policy", "machine", machine.Name)
+			//get all pods on the machine or node
+			podList := &corev1.PodList{}
+			if err := clusterClient.List(ctx, podList, client.MatchingFields{"spec.nodeName": machine.Name}); err != nil {
+				log.Error(err, "Failed to list pods for machine", "machine", capiCluster.GetClusterName())
+				return
+			}
+			// log.Info("Found pods on machine", "machine", machine.Name, "count", len(podList.Items))
+
+			// Iterate through the pods and take action based on the cluster policy
+			if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
+				for _, pod := range podList.Items {
+
+					//check pod if it has a specific label or annotation
+					for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
+						if _, ok := pod.Labels["transition.dcnlab.ssu.ac.kr/cluster-policy"]; ok &&
+							pod.Labels["transition.dcnlab.ssu.ac.kr/package-name"] == transitionPackage.Name {
+							log.Info("Pod part of transition package label, applying transition policy", "pod", pod.Name, "package", transitionPackage.Name)
+							if pod.Status.Phase != corev1.PodRunning {
+								log.Info("transition this", "pod", pod.Name)
+
+							}
+						}
+					}
+				}
+			} else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
+
+			} else {
+				log.Info("No selector label or annotation specified in cluster policy, applying to all pods")
+			}
+
+		} else {
+			log.Info("Machine is running", "machine", machine.Name)
+
+		}
+	}
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {

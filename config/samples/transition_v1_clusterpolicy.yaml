@@ -13,7 +13,7 @@ spec:
   packageSelectors:
     - name: nephio-webui
       packagePath: catalog/nephio/optional/webui
-      packageType: stateful
+      packageType: stateless
       selected: true
   packageRetentionPolicy:
     retainOnSource: false
