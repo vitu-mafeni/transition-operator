@@ -20,7 +20,7 @@ spec:
     deleteAfterTransition: true
   targetClusterPolicy:
     preferClusters:
-      - core
+      - name: core
     avoidClusters:
       - dev-local
 

@@ -67,8 +67,12 @@ type PackageRetentionPolicy struct {
 
 // TargetClusterPolicy defines preferences and avoid rules for target clusters
 type TargetClusterPolicy struct {
-	PreferClusters []string `json:"preferClusters,omitempty"`
-	AvoidClusters  []string `json:"avoidClusters,omitempty"`
+	PreferClusters PreferredCluster `json:"preferClusters,omitempty"`
+	AvoidClusters  PreferredCluster `json:"avoidClusters,omitempty"`
+}
+
+type PreferredCluster struct {
+	Name string `json:"name"`
 }
 
 // ClusterPolicyStatus defines the observed state of ClusterPolicy.

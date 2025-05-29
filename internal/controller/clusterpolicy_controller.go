@@ -254,27 +254,32 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 						if _, ok := pod.Labels["transition.dcnlab.ssu.ac.kr/cluster-policy"]; ok &&
 							pod.Labels["transition.dcnlab.ssu.ac.kr/package-name"] == transitionPackage.Name {
 							log.Info("Pod part of transition package label, applying transition policy", "pod", pod.Name, "package", transitionPackage.Name)
-							r.TransitionWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+							r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
 						}
 					}
 				}
 			} else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
-
+				r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
 			} else {
 				log.Info("No selector label or annotation specified in cluster policy, applying to all pods")
 			}
 
 		} else {
-			log.Info("Machine is running", "machine", machine.Name)
+			log.Info("Skip, Machine is running", "machine", machine.Name)
 
 		}
 	}
 }
 
-func (r *ClusterPolicyReconciler) TransitionWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
+func (r *ClusterPolicyReconciler) TransitionAllWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
+	log := logf.FromContext(ctx)
+	log.Info("Transitioning all workloads", clusterPolicy.Name)
+}
+
+func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
 
 	log := logf.FromContext(ctx)
-	log.Info("Transitioning workload", "pod", pod.Name, "package", transitionPackage.Name)
+	log.Info("Transitioning Selected workload", "pod", pod.Name, "package", transitionPackage.Name)
 	//create argocd application resource
 
 }
