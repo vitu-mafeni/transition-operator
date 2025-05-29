@@ -22,5 +22,5 @@ spec:
     preferClusters:
       - name: core
     avoidClusters:
-      - dev-local
+      - name: dev-local
 

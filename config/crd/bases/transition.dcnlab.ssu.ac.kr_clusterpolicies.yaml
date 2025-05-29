@@ -93,11 +93,21 @@ spec:
                 properties:
                   avoidClusters:
                     items:
-                      type: string
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
                     type: array
                   preferClusters:
                     items:
-                      type: string
+                      properties:
+                        name:
+                          type: string
+                      required:
+                      - name
+                      type: object
                     type: array
                 type: object
               transitionMode:

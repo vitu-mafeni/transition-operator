@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"code.gitea.io/sdk/gitea"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -34,6 +35,7 @@ import (
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
+	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
 	corev1 "k8s.io/api/core/v1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
@@ -199,6 +201,10 @@ func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Contex
 		log.Info("Pod found", "name", pod.Name, "status", pod.Status.Phase, "node", pod.Spec.NodeName)
 
 	}
+
+	//testing git client
+	r.TransitionSelectedWorkloads(ctx, clusterClient, &podList.Items[0], transitionv1.PackageSelector{Name: "test-package"}, &transitionv1.ClusterPolicy{}, ctrl.Request{})
+
 }
 
 // this metthod is called when a machine is not running
@@ -277,11 +283,48 @@ func (r *ClusterPolicyReconciler) TransitionAllWorkloads(ctx context.Context, cl
 }
 
 func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
-
 	log := logf.FromContext(ctx)
 	log.Info("Transitioning Selected workload", "pod", pod.Name, "package", transitionPackage.Name)
-	//create argocd application resource
 
+	// Create APIPatchingApplicator from the controller's client
+	apiClient := resource.NewAPIPatchingApplicator(r.Client)
+
+	// Initialize Gitea client
+	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
+	if err != nil {
+		log.Error(err, "Failed to get Gitea client")
+		return
+	}
+
+	// Check if client is initialized
+	if !giteaClient.IsInitialized() {
+		log.Info("Gitea client not initialized yet, will retry later")
+		return
+	}
+
+	// Get user info
+	user, resp, err := giteaClient.GetMyUserInfo()
+	if err != nil {
+		log.Error(err, "Failed to get user info", "response", resp)
+		return
+	}
+	log.Info("Got Gitea user info", "username", user.UserName)
+
+	// List repositories for the user
+	repos, resp, err := giteaClient.Get().ListMyRepos(gitea.ListReposOptions{})
+	if err != nil {
+		log.Error(err, "Failed to list repositories", "response", resp)
+		return
+	}
+
+	// Log found repositories
+	for _, repo := range repos {
+		log.Info("Found repository",
+			"name", repo.Name,
+			"full_name", repo.FullName,
+			"clone_url", repo.CloneURL,
+			"default_branch", repo.DefaultBranch)
+	}
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {

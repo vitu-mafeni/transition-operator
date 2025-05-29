@@ -157,3 +157,16 @@
   else:
     requeue after policy.LongInterval   # e.g. 5m
   ```
+
+## Create a secret with your Gitea credentials
+```bash
+kubectl create secret generic git-user-secret \
+  --from-literal=username=nephio \
+  --from-literal=password=secret \
+  -n default
+```
+## Create environment variables
+export GIT_SERVER_URL="http://192.168.28.216:30656"
+export GIT_SECRET_NAME="git-user-secret"
+export GIT_SECRET_NAMESPACE="default"
+export POD_NAMESPACE="default"

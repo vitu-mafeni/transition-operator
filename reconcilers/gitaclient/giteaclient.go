@@ -57,22 +57,22 @@ func GetClient(ctx context.Context, client resource.APIPatchingApplicator) (Gite
 	if client.Client == nil {
 		return nil, fmt.Errorf("failed creating gitea client, value of client.Client cannot be nil")
 	}
-	// check if an instance is created using check-lock-check pattern implementation
+
+	// Create singleton instance with check-lock-check pattern
 	if singleInstance == nil {
-		// Create a lock
 		lock.Lock()
 		defer lock.Unlock()
-		// Check instance is still null as another thread of execution may have initialized it before the lock was acquired.
+
 		if singleInstance == nil {
-			singleInstance = &gc{client: client}
-			log.FromContext(ctx).Info("Gitea Client Instance created now.")
-			go singleInstance.Start(ctx)
-		} else {
-			log.FromContext(ctx).Info("Gitea Client Instance already created.")
+			instance := &gc{
+				client: client,
+				l:      log.FromContext(ctx),
+			}
+			instance.Start(ctx) // Initialize the client
+			singleInstance = instance
 		}
-	} else {
-		log.FromContext(ctx).Info("Gitea Client Instance already created.")
 	}
+
 	return singleInstance, nil
 }
 
@@ -84,64 +84,82 @@ type gc struct {
 }
 
 func (r *gc) Start(ctx context.Context) {
-	for {
-		select {
-		// The context is the one returned by ctrl.SetupSignalHandler().
-		// cancel() of this context will trigger <- ctx.Done().
-		// The Idea for continuously retrying is for enabling the user to
-		// create a secret eventually even after the controllers are started.
-		case <-ctx.Done():
-			fmt.Printf("controller manager context cancelled: Exit\n")
-			return
-		default:
-			r.l = log.FromContext(ctx)
-			//var err error
-			time.Sleep(5 * time.Second)
+	r.l = log.FromContext(ctx)
 
-			gitURL, ok := os.LookupEnv("GIT_URL")
-			if !ok {
-				r.l.Error(fmt.Errorf("git url not defined"), "cannot connect to git server")
-				break
-			}
+	// Get Git server URL from environment variable
+	gitURL := os.Getenv("GIT_SERVER_URL")
+	if gitURL == "" {
+		r.l.Error(fmt.Errorf("GIT_SERVER_URL environment variable not set"), "Failed to initialize git client")
+		return
+	}
 
-			namespace := os.Getenv("POD_NAMESPACE")
-			if gitNamespace, ok := os.LookupEnv("GIT_NAMESPACE"); ok {
-				namespace = gitNamespace
-			}
-			secretName := "git-user-secret"
-			if gitSecretName, ok := os.LookupEnv("GIT_SECRET_NAME"); ok {
-				secretName = gitSecretName
-			}
+	// Get Git credentials from secret
+	gitSecretName := os.Getenv("GIT_SECRET_NAME")
+	if gitSecretName == "" {
+		gitSecretName = "git-user-secret" // default secret name
+	}
 
-			// get secret that was created when installing gitea
-			secret := &corev1.Secret{}
-			if err := r.client.Get(ctx, types.NamespacedName{
-				Namespace: namespace,
-				Name:      secretName,
-			},
-				secret); err != nil {
-				r.l.Error(err, "Cannot get secret, please follow README and create the gitea secret")
-				break
-			}
-
-			// To create/list tokens we can only use basic authentication using username and password
-			giteaClient, err := gitea.NewClient(
-				gitURL,
-				getClientAuth(secret))
-			if err != nil {
-				r.l.Error(err, "cannot authenticate to gitea")
-				break
-			}
-
-			r.giteaClient = giteaClient
-			r.l.Info("gitea init done")
-			return
+	gitSecretNamespace := os.Getenv("GIT_SECRET_NAMESPACE")
+	if gitSecretNamespace == "" {
+		if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+			gitSecretNamespace = ns
+		} else {
+			gitSecretNamespace = "default"
 		}
 	}
+
+	// Get the secret containing Git credentials
+	secret := &corev1.Secret{}
+	err := r.client.Get(ctx, types.NamespacedName{
+		Name:      gitSecretName,
+		Namespace: gitSecretNamespace,
+	}, secret)
+	if err != nil {
+		r.l.Error(err, "Failed to get git credentials secret")
+		return
+	}
+
+	// Initialize Gitea client with URL and credentials
+	client, err := gitea.NewClient(gitURL,
+		gitea.SetBasicAuth(
+			string(secret.Data["username"]),
+			string(secret.Data["password"]),
+		))
+	if err != nil {
+		r.l.Error(err, "Failed to create gitea client")
+		return
+	}
+
+	// Test the connection
+	_, _, err = client.GetMyUserInfo()
+	if err != nil {
+		r.l.Error(err, "Failed to verify gitea connection")
+		return
+	}
+
+	r.giteaClient = client
+	r.l.Info("Successfully initialized gitea client", "url", gitURL)
 }
 
-func getClientAuth(secret *corev1.Secret) gitea.ClientOption {
-	return gitea.SetBasicAuth(string(secret.Data["username"]), string(secret.Data["password"]))
+// Add a helper method to wait for initialization
+func (r *gc) WaitForInitialization(ctx context.Context, timeout time.Duration) error {
+	start := time.Now()
+	for {
+		if r.IsInitialized() {
+			return nil
+		}
+
+		if time.Since(start) > timeout {
+			return fmt.Errorf("timeout waiting for gitea client initialization")
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+			continue
+		}
+	}
 }
 
 func (r *gc) IsInitialized() bool {
