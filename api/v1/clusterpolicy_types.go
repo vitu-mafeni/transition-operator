@@ -73,6 +73,11 @@ type TargetClusterPolicy struct {
 
 type PreferredCluster struct {
 	Name string `json:"name"`
+	Repo string `json:"repo"`
+	// RepoType is the type of repository (e.g., git, helm)
+	RepoType string `json:"repoType"`
+	// Weight is used to prioritize clusters, higher values indicate higher preference
+	Weight int `json:"weight,omitempty"`
 }
 
 // ClusterPolicyStatus defines the observed state of ClusterPolicy.

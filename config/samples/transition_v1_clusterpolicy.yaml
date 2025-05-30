@@ -21,6 +21,10 @@ spec:
   targetClusterPolicy:
     preferClusters:
       - name: core
+        repo: http://example.com/nephio/
+        repoType: git
+        weight: 100
     avoidClusters:
       - name: dev-local
-
+        repo: http://example.com/nephio/
+        repoType: git

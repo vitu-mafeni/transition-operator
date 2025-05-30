@@ -96,8 +96,20 @@ spec:
                       properties:
                         name:
                           type: string
+                        repo:
+                          type: string
+                        repoType:
+                          description: RepoType is the type of repository (e.g., git,
+                            helm)
+                          type: string
+                        weight:
+                          description: Weight is used to prioritize clusters, higher
+                            values indicate higher preference
+                          type: integer
                       required:
                       - name
+                      - repo
+                      - repoType
                       type: object
                     type: array
                   preferClusters:
@@ -105,8 +117,20 @@ spec:
                       properties:
                         name:
                           type: string
+                        repo:
+                          type: string
+                        repoType:
+                          description: RepoType is the type of repository (e.g., git,
+                            helm)
+                          type: string
+                        weight:
+                          description: Weight is used to prioritize clusters, higher
+                            values indicate higher preference
+                          type: integer
                       required:
                       - name
+                      - repo
+                      - repoType
                       type: object
                     type: array
                 type: object

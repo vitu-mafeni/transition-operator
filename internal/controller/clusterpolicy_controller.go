@@ -281,6 +281,26 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 func (r *ClusterPolicyReconciler) TransitionAllWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
 	log := logf.FromContext(ctx)
 	log.Info("Transitioning all workloads", clusterPolicy.Name)
+	//transition all workloads in the cluster
+	//since the cluster is linked to a git repository, we can push the ArgoApplication resource to pointing to the failed cluster
+	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
+	targetRepo := ""
+
+	for _, targetCluster := range clusterPolicy.Spec.TargetClusterPolicy.PreferClusters {
+		//compare all the weights of the target clusters and find the one with the highest weight
+		log.Info("Checking target cluster", "name", targetCluster.Name, "weight", targetCluster.Weight)
+		if targetCluster.Weight <= 0 {
+			log.Info("Skipping target cluster with weight 0", "name", targetCluster.Name)
+			continue
+		}
+		//if the target cluster has a weight greater than 0, we can use it as the target repo
+		if targetCluster.Weight > 0 {
+			targetRepo = targetCluster.Repo
+			log.Info("Found preferred target cluster", "name", targetCluster.Name, "repo", targetRepo)
+			break
+
+		}
+	}
 }
 
 func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
