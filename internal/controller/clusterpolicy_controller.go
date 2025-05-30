@@ -285,22 +285,112 @@ func (r *ClusterPolicyReconciler) TransitionAllWorkloads(ctx context.Context, cl
 	//since the cluster is linked to a git repository, we can push the ArgoApplication resource to pointing to the failed cluster
 	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
 	targetRepo := ""
+	maxWeight := -1 // Declare and initialize maxWeight before the loop
+	targetRepoName := ""
 
 	for _, targetCluster := range clusterPolicy.Spec.TargetClusterPolicy.PreferClusters {
-		//compare all the weights of the target clusters and find the one with the highest weight
 		log.Info("Checking target cluster", "name", targetCluster.Name, "weight", targetCluster.Weight)
-		if targetCluster.Weight <= 0 {
-			log.Info("Skipping target cluster with weight 0", "name", targetCluster.Name)
-			continue
-		}
-		//if the target cluster has a weight greater than 0, we can use it as the target repo
-		if targetCluster.Weight > 0 {
+		if targetCluster.Weight > maxWeight {
+			maxWeight = targetCluster.Weight
 			targetRepo = targetCluster.Repo
-			log.Info("Found preferred target cluster", "name", targetCluster.Name, "repo", targetRepo)
-			break
-
+			targetRepoName = targetCluster.Name
+			log.Info("New preferred target cluster", "name", targetCluster.Name, "repo", targetRepo)
 		}
 	}
+
+	if targetRepo == "" {
+		log.Info("No valid target cluster found with weight > 0")
+	}
+	log.Info("Transitioning workloads to target repository", "sourceRepo", sourceRepo, "targetRepo", targetRepo)
+	//create argo application resource yaml file in string format
+	argoAppYAML := `apiVersion: argoproj.io/v1alpha1
+					kind: Application
+					metadata:
+					name: argocd
+					namespace: argocd
+					# Add a this finalizer ONLY if you want these to cascade delete.
+					finalizers:
+						- resources-finalizer.argocd.argoproj.io
+
+					spec:
+					project: default
+					
+					source:
+						repoURL: ` + targetRepo + `
+						targetRevision: HEAD
+						path: .
+						directory:
+						recurse: true # go through subdirectories
+						# include: 'akri/*'
+					
+					destination:
+						server: https://kubernetes.default.svc
+						# The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace
+						namespace: default
+					
+					syncPolicy:
+						automated: 
+						prune: true 
+						selfHeal: true
+						allowEmpty: true
+
+						# Namespace Auto-Creation ensures that namespace specified as the application destination exists in the destination cluster.  
+						syncOptions:
+						- CreateNamespace=true
+					ignoreDifferences:
+						- group: fn.kpt.dev
+						kind: ApplyReplacements
+						- group: fn.kpt.dev
+						kind: StarlarkRun`
+
+	// Create APIPatchingApplicator from the controller's client
+	apiClient := resource.NewAPIPatchingApplicator(r.Client)
+
+	// Initialize Gitea client
+	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
+	if err != nil {
+		log.Error(err, "Failed to get Gitea client")
+		return
+	}
+
+	// Check if client is initialized
+	if !giteaClient.IsInitialized() {
+		log.Info("Gitea client not initialized yet, will retry later")
+		return
+	}
+
+	// Get user info
+	user, resp, err := giteaClient.GetMyUserInfo()
+	if err != nil {
+		log.Error(err, "Failed to get user info", "response", resp)
+		return
+	}
+	log.Info("Got Gitea user info", "username", user.UserName)
+
+	// Create or update the file in the repository
+	// Encode the deployment content as base64
+	encodedContent := base64.StdEncoding.EncodeToString([]byte(argoAppYAML))
+
+	fileOpts := gitea.CreateFileOptions{
+		Content: encodedContent,
+		FileOptions: gitea.FileOptions{
+			Message:    "Add " + clusterPolicy.Spec.ClusterSelector.Name + " argo application for transition",
+			BranchName: "main", // or repo.DefaultBranch
+		},
+	}
+
+	// Try to create/update the file
+	timeCreated := time.Now().Format(time.RFC3339)
+	_, resp, err = giteaClient.Get().CreateFile(user.UserName, targetRepoName, "dr/nginx"+timeCreated+".yaml", fileOpts)
+	if err != nil {
+		log.Error(err, "Failed to create file in repository", "response", resp)
+		return
+	}
+
+	log.Info(" argo application resource for transition ",
+		"repo", targetRepoName,
+		"file", "dr/nginx.yaml")
+
 }
 
 func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
