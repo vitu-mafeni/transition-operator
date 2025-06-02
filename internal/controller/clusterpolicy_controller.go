@@ -241,9 +241,29 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 
 	} else {
 		log.Info("Worker machine found", "machine", machine.Name)
+		hasBadConditions := false
 
-		if machine.Status.Phase == "Failed" || machine.Status.Phase == "Unknown" || (node == nil || (node.Status.Phase != corev1.NodeRunning)) {
+		if node != nil {
+			for _, cond := range node.Status.Conditions {
+				switch cond.Type {
+				case corev1.NodeReady:
+					if cond.Status != corev1.ConditionTrue {
+						hasBadConditions = true
+					}
+				case corev1.NodeMemoryPressure, corev1.NodeDiskPressure, corev1.NodePIDPressure, corev1.NodeNetworkUnavailable:
+					if cond.Status == corev1.ConditionTrue {
+						hasBadConditions = true
+					}
+				}
+			}
+		}
+
+		isMachineFailed := machine.Status.Phase == "Failed" || machine.Status.Phase == "Unknown"
+		isNodeNotRunning := node == nil || node.Status.Phase != corev1.NodeRunning
+
+		if isMachineFailed || isNodeNotRunning || hasBadConditions {
 			log.Info("Machine is not running, applying cluster policy", "machine", machine.Name)
+
 			//get all pods on the machine or node
 			podList := &corev1.PodList{}
 			if err := clusterClient.List(ctx, podList, client.MatchingFields{"spec.nodeName": machine.Name}); err != nil {
