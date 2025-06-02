@@ -6,13 +6,13 @@ metadata:
 spec:
   clusterSelector:
     name: edge
-    repo: http://example.com/nephio/
+    repo: http://192.168.28.187:31969/nephio/edge.git
     repoType: git
   selectMode: specific # specific, all, or none
   transitionMode: manual # automatic, manual, or none
   packageSelectors:
-    - name: nephio-webui
-      packagePath: catalog/nephio/optional/webui
+    - name: nginx
+      packagePath: nginx
       packageType: stateless
       selected: true
   packageRetentionPolicy:
@@ -21,10 +21,10 @@ spec:
   targetClusterPolicy:
     preferClusters:
       - name: core
-        repo: http://example.com/nephio/
+        # repo: http://192.168.28.187:31969/nephio/core.git ## i think this might not be needed because we dont push the transitionresource to this repo
         repoType: git
         weight: 100
-    avoidClusters:
-      - name: dev-local
-        repo: http://example.com/nephio/
-        repoType: git
+    # avoidClusters:
+    #   - name: dev-local
+    #     repo: http://192.168.28.187:31969/nephio/core.git
+    #     repoType: git

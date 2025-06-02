@@ -259,7 +259,7 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 					//check pod if it has a specific label or annotation
 					for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
 						if _, ok := pod.Labels["transition.dcnlab.ssu.ac.kr/cluster-policy"]; ok &&
-							pod.Labels["transition.dcnlab.ssu.ac.kr/package-name"] == transitionPackage.Name {
+							pod.Labels["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
 							log.Info("Pod part of transition package label, applying transition policy", "pod", pod.Name, "package", transitionPackage.Name)
 							r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
 						}
@@ -282,114 +282,6 @@ func (r *ClusterPolicyReconciler) TransitionAllWorkloads(ctx context.Context, cl
 	log := logf.FromContext(ctx)
 	log.Info("Transitioning all workloads", clusterPolicy.Name)
 	//transition all workloads in the cluster
-	//since the cluster is linked to a git repository, we can push the ArgoApplication resource to pointing to the failed cluster
-	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
-	targetRepo := ""
-	maxWeight := -1 // Declare and initialize maxWeight before the loop
-	targetRepoName := ""
-
-	for _, targetCluster := range clusterPolicy.Spec.TargetClusterPolicy.PreferClusters {
-		log.Info("Checking target cluster", "name", targetCluster.Name, "weight", targetCluster.Weight)
-		if targetCluster.Weight > maxWeight {
-			maxWeight = targetCluster.Weight
-			targetRepo = targetCluster.Repo
-			targetRepoName = targetCluster.Name
-			log.Info("New preferred target cluster", "name", targetCluster.Name, "repo", targetRepo)
-		}
-	}
-
-	if targetRepo == "" {
-		log.Info("No valid target cluster found with weight > 0")
-	}
-	log.Info("Transitioning workloads to target repository", "sourceRepo", sourceRepo, "targetRepo", targetRepo)
-	//create argo application resource yaml file in string format
-	argoAppYAML := `apiVersion: argoproj.io/v1alpha1
-					kind: Application
-					metadata:
-					name: argocd
-					namespace: argocd
-					# Add a this finalizer ONLY if you want these to cascade delete.
-					finalizers:
-						- resources-finalizer.argocd.argoproj.io
-
-					spec:
-					project: default
-					
-					source:
-						repoURL: ` + targetRepo + `
-						targetRevision: HEAD
-						path: .
-						directory:
-						recurse: true # go through subdirectories
-						# include: 'akri/*'
-					
-					destination:
-						server: https://kubernetes.default.svc
-						# The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace
-						namespace: default
-					
-					syncPolicy:
-						automated: 
-						prune: true 
-						selfHeal: true
-						allowEmpty: true
-
-						# Namespace Auto-Creation ensures that namespace specified as the application destination exists in the destination cluster.  
-						syncOptions:
-						- CreateNamespace=true
-					ignoreDifferences:
-						- group: fn.kpt.dev
-						kind: ApplyReplacements
-						- group: fn.kpt.dev
-						kind: StarlarkRun`
-
-	// Create APIPatchingApplicator from the controller's client
-	apiClient := resource.NewAPIPatchingApplicator(r.Client)
-
-	// Initialize Gitea client
-	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
-	if err != nil {
-		log.Error(err, "Failed to get Gitea client")
-		return
-	}
-
-	// Check if client is initialized
-	if !giteaClient.IsInitialized() {
-		log.Info("Gitea client not initialized yet, will retry later")
-		return
-	}
-
-	// Get user info
-	user, resp, err := giteaClient.GetMyUserInfo()
-	if err != nil {
-		log.Error(err, "Failed to get user info", "response", resp)
-		return
-	}
-	log.Info("Got Gitea user info", "username", user.UserName)
-
-	// Create or update the file in the repository
-	// Encode the deployment content as base64
-	encodedContent := base64.StdEncoding.EncodeToString([]byte(argoAppYAML))
-
-	fileOpts := gitea.CreateFileOptions{
-		Content: encodedContent,
-		FileOptions: gitea.FileOptions{
-			Message:    "Add " + clusterPolicy.Spec.ClusterSelector.Name + " argo application for transition",
-			BranchName: "main", // or repo.DefaultBranch
-		},
-	}
-
-	// Try to create/update the file
-	timeCreated := time.Now().Format(time.RFC3339)
-	_, resp, err = giteaClient.Get().CreateFile(user.UserName, targetRepoName, "dr/nginx"+timeCreated+".yaml", fileOpts)
-	if err != nil {
-		log.Error(err, "Failed to create file in repository", "response", resp)
-		return
-	}
-
-	log.Info(" argo application resource for transition ",
-		"repo", targetRepoName,
-		"file", "dr/nginx.yaml")
 
 }
 
@@ -421,6 +313,12 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 	}
 	log.Info("Got Gitea user info", "username", user.UserName)
 
+	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
+	if sourceRepo == "" {
+		log.Info("No source repository specified in cluster policy, skipping transition")
+		return
+	}
+
 	// List repositories for the user
 	repos, resp, err := giteaClient.Get().ListMyRepos(gitea.ListReposOptions{})
 	if err != nil {
@@ -433,6 +331,9 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 		return
 	}
 
+	//populate with the single git repo object
+	drRepo := repos[len(repos)-1]
+
 	// Log found repositories
 	for _, repo := range repos {
 		log.Info("Found repository",
@@ -441,55 +342,117 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			"clone_url", repo.CloneURL,
 			"html_url", repo.HTMLURL,
 			"default_branch", repo.DefaultBranch)
+		if repo.Name == "dr" {
+			drRepo = repo
+		}
 
 	}
 
-	// Create nginx deployment content
-	nginxDeployment := `apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: nginx-deployment
-  labels:
-    app: nginx
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: nginx
-  template:
-    metadata:
-      labels:
-        app: nginx
-    spec:
-      containers:
-      - name: nginx
-        image: nginx:latest
-        ports:
-        - containerPort: 80
-`
+	log.Info("Source repository for transition: ", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
-	// Create or update the file in the repository
-	// Encode the deployment content as base64
-	encodedContent := base64.StdEncoding.EncodeToString([]byte(nginxDeployment))
+	//find target repository by weight
+	targetRepoByWeight := ""
+	targetClusterWeight := -1
+	for _, targetCluster := range clusterPolicy.Spec.TargetClusterPolicy.PreferClusters {
+		if targetCluster.Weight > 0 {
+			log.Info("Found target cluster with weight", "cluster", targetCluster.Name, "weight", targetCluster.Weight)
+			if targetCluster.RepoType == "git" {
+				if targetCluster.Weight > targetClusterWeight {
+					targetClusterWeight = targetCluster.Weight
+					targetRepoByWeight = targetCluster.Name + "-dr"
+				}
 
-	fileOpts := gitea.CreateFileOptions{
-		Content: encodedContent,
-		FileOptions: gitea.FileOptions{
-			Message:    "Add nginx deployment",
-			BranchName: "main", // or repo.DefaultBranch
-		},
+			} else {
+				log.Info("Skipping target cluster with non-git repository type", "cluster", targetCluster.Name, "repoType", targetCluster.RepoType)
+				continue
+			}
+		} else {
+			log.Info("Skipping target cluster with zero weight", "cluster", targetCluster.Name, "weight", targetCluster.Weight)
+			continue
+		}
 	}
-
-	// Try to create/update the file
-	_, resp, err = giteaClient.Get().CreateFile(user.UserName, repos[0].Name, "deployments/nginx.yaml", fileOpts)
-	if err != nil {
-		log.Error(err, "Failed to create file in repository", "response", resp)
+	// If no target repository found, use the default repository
+	if targetRepoByWeight == "" {
+		log.Info("No target repository found by weight, cancel recovery action", "repo", drRepo.Name)
 		return
 	}
+	// Get the repository by name
 
-	log.Info("Successfully pushed nginx deployment to repository",
-		"repo", repos[0].FullName,
-		"file", "deployments/nginx.yaml")
+	if transitionPackage.PackageType == transitionv1.PackageTypeStateful {
+		log.Info("Transitioning stateful package", "package", transitionPackage.Name)
+
+	} else if transitionPackage.PackageType == transitionv1.PackageTypeStateless {
+		log.Info("Transitioning stateless package", "package", transitionPackage.Name)
+		// Create argo application resource yaml file in string format
+		argoAppYAML := `apiVersion: argoproj.io/v1alpha1
+					kind: Application
+					metadata:
+					name: argocd-` + clusterPolicy.Spec.ClusterSelector.Name + `-` + transitionPackage.Name + `
+					namespace: argocd
+					# Add a this finalizer ONLY if you want these to cascade delete.
+					finalizers:
+						- resources-finalizer.argocd.argoproj.io
+
+					spec:
+					project: default
+					
+					source:
+						repoURL: ` + sourceRepo + `
+						targetRevision: HEAD
+						path: ` + transitionPackage.PackagePath + `
+						directory:
+						recurse: true # go through subdirectories
+						# include: 'akri/*'
+					
+					destination:
+						server: https://kubernetes.default.svc
+						# The namespace will only be set for namespace-scoped resources that have not set a value for .metadata.namespace
+						namespace: default
+					
+					syncPolicy:
+						automated: 
+						prune: true 
+						selfHeal: true
+						allowEmpty: true
+
+						# Namespace Auto-Creation ensures that namespace specified as the application destination exists in the destination cluster.  
+						syncOptions:
+						- CreateNamespace=true
+					ignoreDifferences:
+						- group: fn.kpt.dev
+						kind: ApplyReplacements
+						- group: fn.kpt.dev
+						kind: StarlarkRun`
+
+		// Create or update the file in the repository
+		// Encode the deployment content as base64
+		encodedContent := base64.StdEncoding.EncodeToString([]byte(argoAppYAML))
+
+		fileOpts := gitea.CreateFileOptions{
+			Content: encodedContent,
+			FileOptions: gitea.FileOptions{
+				Message:    "argocd-" + clusterPolicy.Spec.ClusterSelector.Name + "-" + transitionPackage.Name + "",
+				BranchName: "main", // or repo.DefaultBranch
+			},
+		}
+
+		// Try to create/update the file and name should be a timestamp
+		timeCreated := time.Now().Format(time.RFC3339)
+
+		// Create the file in the repository
+		_, resp, err = giteaClient.Get().CreateFile(user.UserName, drRepo.Name, targetRepoByWeight+"/argo-app-"+timeCreated+".yaml", fileOpts)
+		if err != nil {
+			log.Error(err, "Failed to create file in repository", "response", resp)
+			return
+		}
+
+		log.Info("Successfully pushed argo application to repository",
+			"repo", drRepo.FullName,
+			"file", targetRepoByWeight+"/argo-app-"+timeCreated+".yaml")
+	} else {
+		log.Info("Unknown package type, skipping transition", "package", transitionPackage.Name)
+		return
+	}
 
 }
 

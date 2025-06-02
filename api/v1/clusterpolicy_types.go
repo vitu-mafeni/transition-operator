@@ -28,6 +28,15 @@ const (
 	SelectAll SelectMode = "All"
 )
 
+// PackageType defines the type of package (stateless or stateful)
+type PackageType string
+
+const (
+	PackageTypeStateless PackageType = "Stateless"
+	// PackageTypeStateful means stateful packages will be transitioned.
+	PackageTypeStateful PackageType = "Stateful"
+)
+
 // +enum
 type SelectMode string
 
@@ -53,10 +62,10 @@ type ClusterSelector struct {
 
 // PackageSelector defines individual package selection criteria
 type PackageSelector struct {
-	Name        string `json:"name"`
-	PackagePath string `json:"packagePath"`
-	PackageType string `json:"packageType"` // e.g., stateful, stateless
-	Selected    bool   `json:"selected"`
+	Name        string      `json:"name"`
+	PackagePath string      `json:"packagePath"`
+	PackageType PackageType `json:"packageType"` // e.g., stateful, stateless
+	Selected    bool        `json:"selected"`
 }
 
 // PackageRetentionPolicy defines rules for source cleanup after transition
@@ -73,7 +82,7 @@ type TargetClusterPolicy struct {
 
 type PreferredCluster struct {
 	Name string `json:"name"`
-	Repo string `json:"repo"`
+	// Repo string `json:"repo"`
 	// RepoType is the type of repository (e.g., git, helm)
 	RepoType string `json:"repoType"`
 	// Weight is used to prioritize clusters, higher values indicate higher preference
