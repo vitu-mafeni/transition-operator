@@ -98,7 +98,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			r.performWorkloadClusterPolicyActions(ctx, clusterPolicy, &workload_cluster, req)
 			// log.Info("Performed actions for matching cluster", "cluster", cluster.Name)
 		} else {
-			log.Info("Cluster does not match ClusterPolicy selector", "cluster", workload_cluster.Name)
+			log.Info("Cluster does not match ClusterPolicy selector - skipping", "cluster", workload_cluster.Name)
 
 		}
 	}
@@ -147,8 +147,7 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 
 	r.handleNodesInWorkloadCluster(ctx, capiCluster, cluster)
 
-	r.handlePodsInWorkloadCluster(ctx, capiCluster, cluster)
-
+	// r.handlePodsInWorkloadCluster(ctx, capiCluster, cluster)
 }
 
 func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
@@ -172,7 +171,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 	log.Info("Found nodes in cluster", "count", len(nodeList.Items))
 	//list all pods in the cluster
 	for _, node := range nodeList.Items {
-		log.Info("Node found", "name", node.Name, "status", node.Status.Phase, "addresses", node.Status.Addresses)
+		log.Info("Node found", "name", node.Name, "status", node.Status, "addresses", node.Status.Addresses)
 		//get node type, control-plane or worker
 
 	}
