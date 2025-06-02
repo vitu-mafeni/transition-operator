@@ -174,10 +174,8 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 	for _, node := range nodeList.Items {
 		// log.Info("Node found", "name", node.Name, "status", node.Status, "addresses", node.Status.Addresses)
 		//get node type, control-plane or worker
-		latest := helpers.GetMostRecentNodeCondition(node)
-		if latest != nil {
-			log.Info("Most recent condition transition", "NODE", node.Name, "type", latest.Type, "status", latest.Status, "reason", latest.Reason, "time", latest.LastTransitionTime)
-		}
+		status := helpers.GetNodeStatusSummary(node)
+		log.Info("Node status", "name", node.Name, "status", status)
 	}
 }
 

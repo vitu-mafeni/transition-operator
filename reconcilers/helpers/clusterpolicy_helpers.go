@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	gitea "code.gitea.io/sdk/gitea"
@@ -142,4 +143,54 @@ func GetMostRecentNodeCondition(node corev1.Node) *corev1.NodeCondition {
 		}
 	}
 	return latest
+}
+
+func GetNodeStatusSummary(node corev1.Node) string {
+	var readyCond *corev1.NodeCondition
+	conditionMap := make(map[corev1.NodeConditionType]corev1.ConditionStatus)
+
+	for i := range node.Status.Conditions {
+		cond := node.Status.Conditions[i]
+		conditionMap[cond.Type] = cond.Status
+		if cond.Type == corev1.NodeReady {
+			if readyCond == nil || cond.LastTransitionTime.After(readyCond.LastTransitionTime.Time) {
+				readyCond = &cond
+			}
+		}
+	}
+
+	if readyCond == nil {
+		return "Node status unknown (no Ready condition)"
+	}
+
+	status := "Unknown"
+	switch readyCond.Status {
+	case corev1.ConditionTrue:
+		status = "Ready"
+	case corev1.ConditionFalse:
+		status = fmt.Sprintf("NotReady (%s)", readyCond.Reason)
+	case corev1.ConditionUnknown:
+		status = "Unknown"
+	}
+
+	// Add more context
+	var problems []string
+	if conditionMap[corev1.NodeMemoryPressure] == corev1.ConditionTrue {
+		problems = append(problems, "MemoryPressure")
+	}
+	if conditionMap[corev1.NodeDiskPressure] == corev1.ConditionTrue {
+		problems = append(problems, "DiskPressure")
+	}
+	if conditionMap[corev1.NodePIDPressure] == corev1.ConditionTrue {
+		problems = append(problems, "PIDPressure")
+	}
+	if conditionMap[corev1.NodeNetworkUnavailable] == corev1.ConditionTrue {
+		problems = append(problems, "NetworkUnavailable")
+	}
+
+	if len(problems) > 0 {
+		status += " (Issues: " + strings.Join(problems, ", ") + ")"
+	}
+
+	return status
 }
