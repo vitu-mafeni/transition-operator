@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"gopkg.in/yaml.v2"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type ArgoAppSpec struct {
@@ -130,4 +131,15 @@ func CreateAndPushArgoApp(
 
 	log.Info("Successfully pushed Argo application", "repo", repoName, "file", filename)
 	return nil
+}
+
+func GetMostRecentNodeCondition(node corev1.Node) *corev1.NodeCondition {
+	var latest *corev1.NodeCondition
+	for i := range node.Status.Conditions {
+		cond := &node.Status.Conditions[i]
+		if latest == nil || cond.LastTransitionTime.After(latest.LastTransitionTime.Time) {
+			latest = cond
+		}
+	}
+	return latest
 }

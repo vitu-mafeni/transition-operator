@@ -36,6 +36,7 @@ import (
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
+	"github.com/vitu1234/transition-operator/reconcilers/helpers"
 	giteahelpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
 	corev1 "k8s.io/api/core/v1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -171,9 +172,12 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 	log.Info("Found nodes in cluster", "count", len(nodeList.Items))
 	//list all pods in the cluster
 	for _, node := range nodeList.Items {
-		log.Info("Node found", "name", node.Name, "status", node.Status, "addresses", node.Status.Addresses)
+		// log.Info("Node found", "name", node.Name, "status", node.Status, "addresses", node.Status.Addresses)
 		//get node type, control-plane or worker
-
+		latest := helpers.GetMostRecentNodeCondition(node)
+		if latest != nil {
+			log.Info("Most recent condition transition", "NODE", node.Name, "type", latest.Type, "status", latest.Status, "reason", latest.Reason, "time", latest.LastTransitionTime)
+		}
 	}
 }
 
