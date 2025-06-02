@@ -11,30 +11,6 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func logRepositories(log logr.Logger, repos []*gitea.Repository) {
-	for _, repo := range repos {
-		log.Info("Found repository", "name", repo.Name, "full_name", repo.FullName, "url", repo.CloneURL)
-	}
-}
-
-func determineTargetRepo(policy *transitionv1.ClusterPolicy, log logr.Logger) (string, bool) {
-	highestWeight := -1
-	var repo string
-
-	for _, target := range policy.Spec.TargetClusterPolicy.PreferClusters {
-		if target.RepoType != "git" {
-			log.Info("Skipping non-git repository", "cluster", target.Name)
-			continue
-		}
-		if target.Weight > highestWeight {
-			highestWeight = target.Weight
-			repo = target.Name + "-dr"
-		}
-	}
-
-	return repo, repo != ""
-}
-
 type ArgoAppSpec struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
@@ -72,7 +48,31 @@ type ArgoAppSpec struct {
 	} `yaml:"spec"`
 }
 
-func createAndPushArgoApp(
+func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
+	for _, repo := range repos {
+		log.Info("Found repository", "name", repo.Name, "full_name", repo.FullName, "url", repo.CloneURL)
+	}
+}
+
+func DetermineTargetRepo(policy *transitionv1.ClusterPolicy, log logr.Logger) (string, bool) {
+	highestWeight := -1
+	var repo string
+
+	for _, target := range policy.Spec.TargetClusterPolicy.PreferClusters {
+		if target.RepoType != "git" {
+			log.Info("Skipping non-git repository", "cluster", target.Name)
+			continue
+		}
+		if target.Weight > highestWeight {
+			highestWeight = target.Weight
+			repo = target.Name + "-dr"
+		}
+	}
+
+	return repo, repo != ""
+}
+
+func CreateAndPushArgoApp(
 	ctx context.Context,
 	client *gitea.Client,
 	username, repoName, folder string,
