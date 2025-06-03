@@ -37,6 +37,14 @@ const (
 	PackageTypeStateful PackageType = "Stateful"
 )
 
+type PackageTransitionCondition string
+
+const (
+	PackageTransitionConditionInProgress PackageTransitionCondition = "InProgress"
+	PackageTransitionConditionCompleted  PackageTransitionCondition = "Completed"
+	PackageTransitionConditionFailed     PackageTransitionCondition = "Failed"
+)
+
 // +enum
 type SelectMode string
 
@@ -89,10 +97,17 @@ type PreferredCluster struct {
 	Weight int `json:"weight,omitempty"`
 }
 
-// ClusterPolicyStatus defines the observed state of ClusterPolicy.
+type TransitionedPackages struct {
+	PackageSelectors           []PackageSelector          `json:"packageSelectors,omitempty"`
+	LastTransitionTime         metav1.Time                `json:"lastTransitionTime,omitempty"`
+	PackageTransitionCondition PackageTransitionCondition `json:"packageTransitionCondition,omitempty"` // e.g., "InProgress", "Completed", "Failed"
+	PackageTransitionMessage   string                     `json:"packageTransitionMessage,omitempty"`   // message describing the transition status
+}
+
 type ClusterPolicyStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	TransitionedPackages []TransitionedPackages `json:"transitionedPackages,omitempty"`
 }
 
 // +kubebuilder:object:root=true
