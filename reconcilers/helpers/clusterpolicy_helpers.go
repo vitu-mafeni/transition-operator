@@ -38,10 +38,11 @@ type ArgoAppSpec struct {
 		} `yaml:"destination"`
 		SyncPolicy struct {
 			Automated struct {
-				Prune    bool `yaml:"prune"`
-				SelfHeal bool `yaml:"selfHeal"`
+				Prune      bool `yaml:"prune"`
+				SelfHeal   bool `yaml:"selfHeal"`
+				AllowEmpty bool `yaml:"allowEmpty"`
 			} `yaml:"automated"`
-			// AllowEmpty  bool     `yaml:"allowEmpty"`
+
 			SyncOptions []string `yaml:"syncOptions"`
 		} `yaml:"syncPolicy"`
 		IgnoreDifferences []struct {
@@ -103,7 +104,7 @@ func CreateAndPushArgoApp(
 
 	app.Spec.SyncPolicy.Automated.Prune = true
 	app.Spec.SyncPolicy.Automated.SelfHeal = true
-	// app.Spec.SyncPolicy.AllowEmpty = true
+	app.Spec.SyncPolicy.Automated.AllowEmpty = true
 	app.Spec.SyncPolicy.SyncOptions = []string{"CreateNamespace=true"}
 
 	// Correct placement of IgnoreDifferences
