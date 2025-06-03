@@ -2,13 +2,16 @@ package helpers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"time"
 
 	gitea "code.gitea.io/sdk/gitea"
 	"github.com/go-logr/logr"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"gopkg.in/yaml.v2"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type ArgoAppSpec struct {
@@ -35,16 +38,17 @@ type ArgoAppSpec struct {
 		} `yaml:"destination"`
 		SyncPolicy struct {
 			Automated struct {
-				Prune    bool `yaml:"prune"`
-				SelfHeal bool `yaml:"selfHeal"`
+				Prune      bool `yaml:"prune"`
+				SelfHeal   bool `yaml:"selfHeal"`
+				AllowEmpty bool `yaml:"allowEmpty"`
 			} `yaml:"automated"`
-			AllowEmpty  bool     `yaml:"allowEmpty"`
+
 			SyncOptions []string `yaml:"syncOptions"`
-			IgnoreDiffs []struct {
-				Group string `yaml:"group"`
-				Kind  string `yaml:"kind"`
-			} `yaml:"ignoreDifferences"`
 		} `yaml:"syncPolicy"`
+		IgnoreDifferences []struct {
+			Group string `yaml:"group"`
+			Kind  string `yaml:"kind"`
+		} `yaml:"ignoreDifferences"`
 	} `yaml:"spec"`
 }
 
@@ -84,21 +88,27 @@ func CreateAndPushArgoApp(
 		APIVersion: "argoproj.io/v1alpha1",
 		Kind:       "Application",
 	}
+
 	app.Metadata.Name = fmt.Sprintf("argocd-%s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
 	app.Metadata.Namespace = "argocd"
 	app.Metadata.Finalizers = []string{"resources-finalizer.argocd.argoproj.io"}
+
 	app.Spec.Project = "default"
 	app.Spec.Source.RepoURL = clusterPolicy.Spec.ClusterSelector.Repo
 	app.Spec.Source.TargetRevision = "HEAD"
 	app.Spec.Source.Path = transitionPackage.PackagePath
 	app.Spec.Source.Directory.Recurse = true
+
 	app.Spec.Destination.Server = "https://kubernetes.default.svc"
 	app.Spec.Destination.Namespace = "default"
+
 	app.Spec.SyncPolicy.Automated.Prune = true
 	app.Spec.SyncPolicy.Automated.SelfHeal = true
-	app.Spec.SyncPolicy.AllowEmpty = true
+	app.Spec.SyncPolicy.Automated.AllowEmpty = true
 	app.Spec.SyncPolicy.SyncOptions = []string{"CreateNamespace=true"}
-	app.Spec.SyncPolicy.IgnoreDiffs = []struct {
+
+	// Correct placement of IgnoreDifferences
+	app.Spec.IgnoreDifferences = []struct {
 		Group string `yaml:"group"`
 		Kind  string `yaml:"kind"`
 	}{
@@ -115,8 +125,10 @@ func CreateAndPushArgoApp(
 	filename := fmt.Sprintf("%s/argo-app-%s.yaml", folder, timestamp)
 	message := fmt.Sprintf("ArgoCD app: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
 
+	encodedContent := base64.StdEncoding.EncodeToString(yamlData)
+
 	fileOpts := gitea.CreateFileOptions{
-		Content: string(yamlData),
+		Content: encodedContent,
 		FileOptions: gitea.FileOptions{
 			Message:    message,
 			BranchName: "main",
@@ -130,4 +142,65 @@ func CreateAndPushArgoApp(
 
 	log.Info("Successfully pushed Argo application", "repo", repoName, "file", filename)
 	return nil
+}
+
+func GetMostRecentNodeCondition(node corev1.Node) *corev1.NodeCondition {
+	var latest *corev1.NodeCondition
+	for i := range node.Status.Conditions {
+		cond := &node.Status.Conditions[i]
+		if latest == nil || cond.LastTransitionTime.After(latest.LastTransitionTime.Time) {
+			latest = cond
+		}
+	}
+	return latest
+}
+
+func GetNodeStatusSummary(node corev1.Node) string {
+	var readyCond *corev1.NodeCondition
+	conditionMap := make(map[corev1.NodeConditionType]corev1.ConditionStatus)
+
+	for i := range node.Status.Conditions {
+		cond := node.Status.Conditions[i]
+		conditionMap[cond.Type] = cond.Status
+		if cond.Type == corev1.NodeReady {
+			if readyCond == nil || cond.LastTransitionTime.After(readyCond.LastTransitionTime.Time) {
+				readyCond = &cond
+			}
+		}
+	}
+
+	if readyCond == nil {
+		return "Node status unknown (no Ready condition)"
+	}
+
+	status := "Unknown"
+	switch readyCond.Status {
+	case corev1.ConditionTrue:
+		status = "Ready"
+	case corev1.ConditionFalse:
+		status = fmt.Sprintf("NotReady (%s)", readyCond.Reason)
+	case corev1.ConditionUnknown:
+		status = "Unknown"
+	}
+
+	// Add more context
+	var problems []string
+	if conditionMap[corev1.NodeMemoryPressure] == corev1.ConditionTrue {
+		problems = append(problems, "MemoryPressure")
+	}
+	if conditionMap[corev1.NodeDiskPressure] == corev1.ConditionTrue {
+		problems = append(problems, "DiskPressure")
+	}
+	if conditionMap[corev1.NodePIDPressure] == corev1.ConditionTrue {
+		problems = append(problems, "PIDPressure")
+	}
+	if conditionMap[corev1.NodeNetworkUnavailable] == corev1.ConditionTrue {
+		problems = append(problems, "NetworkUnavailable")
+	}
+
+	if len(problems) > 0 {
+		status += " (Issues: " + strings.Join(problems, ", ") + ")"
+	}
+
+	return status
 }

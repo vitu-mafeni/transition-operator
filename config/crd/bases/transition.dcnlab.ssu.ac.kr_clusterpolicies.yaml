@@ -75,6 +75,8 @@ spec:
                     packagePath:
                       type: string
                     packageType:
+                      description: PackageType defines the type of package (stateless
+                        or stateful)
                       type: string
                     selected:
                       type: boolean
@@ -96,11 +98,10 @@ spec:
                       properties:
                         name:
                           type: string
-                        repo:
-                          type: string
                         repoType:
-                          description: RepoType is the type of repository (e.g., git,
-                            helm)
+                          description: |-
+                            Repo string `json:"repo"`
+                            RepoType is the type of repository (e.g., git, helm)
                           type: string
                         weight:
                           description: Weight is used to prioritize clusters, higher
@@ -108,7 +109,6 @@ spec:
                           type: integer
                       required:
                       - name
-                      - repo
                       - repoType
                       type: object
                     type: array
@@ -117,11 +117,10 @@ spec:
                       properties:
                         name:
                           type: string
-                        repo:
-                          type: string
                         repoType:
-                          description: RepoType is the type of repository (e.g., git,
-                            helm)
+                          description: |-
+                            Repo string `json:"repo"`
+                            RepoType is the type of repository (e.g., git, helm)
                           type: string
                         weight:
                           description: Weight is used to prioritize clusters, higher
@@ -129,7 +128,6 @@ spec:
                           type: integer
                       required:
                       - name
-                      - repo
                       - repoType
                       type: object
                     type: array
