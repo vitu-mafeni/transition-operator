@@ -20,7 +20,7 @@ spec:
     deleteAfterTransition: true
   targetClusterPolicy:
     preferClusters:
-      - name: core
+      - name: regional
         # repo: http://192.168.28.187:31969/nephio/core.git ## i think this might not be needed because we dont push the transitionresource to this repo
         repoType: git
         weight: 100
