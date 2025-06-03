@@ -207,18 +207,39 @@ func GetNodeStatusSummary(node corev1.Node) string {
 
 // IsPackageTransitioned returns true if the given package is already in the TransitionedPackages list.
 func IsPackageTransitioned(clusterPolicy *transitionv1.ClusterPolicy, pkg transitionv1.PackageSelector) bool {
-	for _, transitioned := range clusterPolicy.Status.TransitionedPackages {
+
+	var latestMatch *transitionv1.TransitionedPackages
+	for i, transitioned := range clusterPolicy.Status.TransitionedPackages {
 		for _, sel := range transitioned.PackageSelectors {
 			if sel.Name == pkg.Name {
-				if transitioned.PackageTransitionCondition == transitionv1.PackageTransitionConditionCompleted {
-					return true
-
-				}
-				if transitioned.PackageTransitionCondition == transitionv1.PackageTransitionConditionInProgress {
-					return false
+				if latestMatch == nil || transitioned.LastTransitionTime.After(latestMatch.LastTransitionTime.Time) {
+					latestMatch = &clusterPolicy.Status.TransitionedPackages[i]
 				}
 			}
 		}
 	}
+
+	if latestMatch != nil {
+		switch latestMatch.PackageTransitionCondition {
+		case transitionv1.PackageTransitionConditionCompleted:
+			return true
+		case transitionv1.PackageTransitionConditionInProgress:
+			return false
+		}
+	}
+
+	// for _, transitioned := range clusterPolicy.Status.TransitionedPackages {
+	// 	for _, sel := range transitioned.PackageSelectors {
+	// 		if sel.Name == pkg.Name {
+	// 			if transitioned.PackageTransitionCondition == transitionv1.PackageTransitionConditionCompleted {
+	// 				return true
+
+	// 			}
+	// 			if transitioned.PackageTransitionCondition == transitionv1.PackageTransitionConditionInProgress {
+	// 				return false
+	// 			}
+	// 		}
+	// 	}
+	// }
 	return false
 }
