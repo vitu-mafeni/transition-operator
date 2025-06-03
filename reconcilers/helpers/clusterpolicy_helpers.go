@@ -2,6 +2,7 @@ package helpers
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
@@ -42,11 +43,11 @@ type ArgoAppSpec struct {
 			} `yaml:"automated"`
 			AllowEmpty  bool     `yaml:"allowEmpty"`
 			SyncOptions []string `yaml:"syncOptions"`
-			IgnoreDiffs []struct {
-				Group string `yaml:"group"`
-				Kind  string `yaml:"kind"`
-			} `yaml:"ignoreDifferences"`
 		} `yaml:"syncPolicy"`
+		IgnoreDifferences []struct {
+			Group string `yaml:"group"`
+			Kind  string `yaml:"kind"`
+		} `yaml:"ignoreDifferences"`
 	} `yaml:"spec"`
 }
 
@@ -86,21 +87,27 @@ func CreateAndPushArgoApp(
 		APIVersion: "argoproj.io/v1alpha1",
 		Kind:       "Application",
 	}
+
 	app.Metadata.Name = fmt.Sprintf("argocd-%s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
 	app.Metadata.Namespace = "argocd"
 	app.Metadata.Finalizers = []string{"resources-finalizer.argocd.argoproj.io"}
+
 	app.Spec.Project = "default"
 	app.Spec.Source.RepoURL = clusterPolicy.Spec.ClusterSelector.Repo
 	app.Spec.Source.TargetRevision = "HEAD"
 	app.Spec.Source.Path = transitionPackage.PackagePath
 	app.Spec.Source.Directory.Recurse = true
+
 	app.Spec.Destination.Server = "https://kubernetes.default.svc"
 	app.Spec.Destination.Namespace = "default"
+
 	app.Spec.SyncPolicy.Automated.Prune = true
 	app.Spec.SyncPolicy.Automated.SelfHeal = true
 	app.Spec.SyncPolicy.AllowEmpty = true
 	app.Spec.SyncPolicy.SyncOptions = []string{"CreateNamespace=true"}
-	app.Spec.SyncPolicy.IgnoreDiffs = []struct {
+
+	// Correct placement of IgnoreDifferences
+	app.Spec.IgnoreDifferences = []struct {
 		Group string `yaml:"group"`
 		Kind  string `yaml:"kind"`
 	}{
@@ -117,8 +124,10 @@ func CreateAndPushArgoApp(
 	filename := fmt.Sprintf("%s/argo-app-%s.yaml", folder, timestamp)
 	message := fmt.Sprintf("ArgoCD app: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
 
+	encodedContent := base64.StdEncoding.EncodeToString(yamlData)
+
 	fileOpts := gitea.CreateFileOptions{
-		Content: string(yamlData),
+		Content: encodedContent,
 		FileOptions: gitea.FileOptions{
 			Message:    message,
 			BranchName: "main",

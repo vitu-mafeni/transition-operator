@@ -8,12 +8,12 @@ spec:
     name: edge
     repo: http://192.168.28.187:31969/nephio/edge.git
     repoType: git
-  selectMode: specific # specific, all, or none
-  transitionMode: manual # automatic, manual, or none
+  selectMode: Specific # Specific, All
+  transitionMode: Manual # Automatic, Manual
   packageSelectors:
     - name: nginx
       packagePath: nginx
-      packageType: stateless
+      packageType: Stateless # Stateless, Stateful
       selected: true
   packageRetentionPolicy:
     retainOnSource: false
