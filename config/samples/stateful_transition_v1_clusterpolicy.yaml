@@ -5,17 +5,17 @@ metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
-    name: cluster1
+    name: cluster1vt
     repo: http://192.168.28.137:30524/nephio/cluster1vt.git
     repoType: git
   selectMode: Specific # Specific, All
   transitionMode: Manual # Automatic, Manual
   packageSelectors:
-    - name: wordpress
-      packagePath: wordpress
+    - name: wordpress-app
+      packagePath: wordpress-app # where the package is in the repo
       packageType: Stateful # Stateless, Stateful
       selected: true
-      backupInfomation:
+      backupInformation:
         - name: cluster1-backup # Backup Name
           backupType: Manual # Manual, Schedule
         - name: cluster1-backup-every-5-min # Schedule Name

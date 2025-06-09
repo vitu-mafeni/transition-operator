@@ -384,8 +384,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 		for _, backup := range transitionPackage.BackupInformation {
 			switch backup.BackupType {
 			case transitionv1.BackupTypeSchedule:
-				scheme := runtime.NewScheme()
-				_ = velero.AddToScheme(scheme)
+
 				backupListVelero := &velero.BackupList{}
 				if err := clusterClient.List(ctx, backupListVelero, &client.ListOptions{
 					Namespace: "velero", // Or leave blank for all namespaces (if using client.Cluster),

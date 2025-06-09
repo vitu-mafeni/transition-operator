@@ -39,6 +39,7 @@ import (
 
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"github.com/vitu1234/transition-operator/internal/controller"
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
 	// +kubebuilder:scaffold:imports
 
@@ -52,7 +53,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
+	utilruntime.Must(velerov1.AddToScheme(scheme)) // ← Add this line
 	utilruntime.Must(transitionv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 	_ = capiv1beta1.AddToScheme(scheme)

@@ -25,12 +25,26 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/scale/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	policyv1 "k8s.io/api/policy/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	storagev1 "k8s.io/api/storage/v1"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
@@ -91,16 +105,30 @@ func isReady(cs capiv1beta1.Conditions) bool {
 }
 
 func getCapiClusterClient(secret *corev1.Secret) (resource.APIPatchingApplicator, bool, error) {
+	// Load the scheme with Velero
+
+	scheme := GetDefaultKubeScheme()
+
+	s := GetDefaultKubeScheme()
+
+	utilruntime.Must(velerov1.AddToScheme(s))
+	_ = velerov1.AddToScheme(scheme)
+
 	//provide a rest config from the secret value
 	config, err := clientcmd.RESTConfigFromKubeConfig(secret.Data["value"])
 	if err != nil {
 		return resource.APIPatchingApplicator{}, false, err
 	}
 	// build a cluster client from the kube rest config
-	clClient, err := client.New(config, client.Options{})
+	// clClient, err := client.New(config, client.Options{})
+	// if err != nil {
+	// 	return resource.APIPatchingApplicator{}, false, err
+	// }
+	clClient, err := client.New(config, client.Options{Scheme: scheme})
 	if err != nil {
 		return resource.APIPatchingApplicator{}, false, err
 	}
+
 	return resource.NewAPIPatchingApplicator(clClient), true, nil
 }
 
@@ -146,4 +174,39 @@ func GetCapiClusterFromSecret(secret *corev1.Secret, cl client.Client) *Capi {
 	}
 }
 
-//get clusterlist from capi
+// Register Velero resources
+func GetSchemeWithVelero() (*runtime.Scheme, error) {
+	scheme := runtime.NewScheme()
+
+	// Add core types (like Pods, Secrets, etc.)
+	if err := corev1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+
+	// Add Velero CRDs
+	if err := velerov1.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+
+	return scheme, nil
+}
+
+func GetDefaultKubeScheme() *runtime.Scheme {
+	s := runtime.NewScheme()
+
+	// Add all default types
+	utilruntime.Must(corev1.AddToScheme(s))
+	utilruntime.Must(appsv1.AddToScheme(s))
+	utilruntime.Must(batchv1.AddToScheme(s))
+	utilruntime.Must(rbacv1.AddToScheme(s))
+	utilruntime.Must(autoscalingv1.AddToScheme(s))
+	utilruntime.Must(networkingv1.AddToScheme(s))
+	utilruntime.Must(policyv1.AddToScheme(s))
+	utilruntime.Must(storagev1.AddToScheme(s))
+	utilruntime.Must(apiextensionsv1.AddToScheme(s))
+
+	// Optionally also add the client-go default scheme (aggregates many)
+	utilruntime.Must(scheme.AddToScheme(s))
+
+	return s
+}
