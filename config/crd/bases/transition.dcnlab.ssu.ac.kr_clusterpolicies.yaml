@@ -70,6 +70,20 @@ spec:
                   description: PackageSelector defines individual package selection
                     criteria
                   properties:
+                    backupInformation:
+                      items:
+                        properties:
+                          backupType:
+                            description: BackupType defines the type of backup in
+                              Velero backups
+                            type: string
+                          name:
+                            type: string
+                        required:
+                        - backupType
+                        - name
+                        type: object
+                      type: array
                     name:
                       type: string
                     packagePath:
@@ -81,6 +95,7 @@ spec:
                     selected:
                       type: boolean
                   required:
+                  - backupInformation
                   - name
                   - packagePath
                   - packageType
@@ -155,6 +170,20 @@ spec:
                         description: PackageSelector defines individual package selection
                           criteria
                         properties:
+                          backupInformation:
+                            items:
+                              properties:
+                                backupType:
+                                  description: BackupType defines the type of backup
+                                    in Velero backups
+                                  type: string
+                                name:
+                                  type: string
+                              required:
+                              - backupType
+                              - name
+                              type: object
+                            type: array
                           name:
                             type: string
                           packagePath:
@@ -166,6 +195,7 @@ spec:
                           selected:
                             type: boolean
                         required:
+                        - backupInformation
                         - name
                         - packagePath
                         - packageType

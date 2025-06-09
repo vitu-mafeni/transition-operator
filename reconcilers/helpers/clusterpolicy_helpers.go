@@ -14,44 +14,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-type ArgoAppSpec struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name       string   `yaml:"name"`
-		Namespace  string   `yaml:"namespace"`
-		Finalizers []string `yaml:"finalizers"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Project string `yaml:"project"`
-		Source  struct {
-			RepoURL        string `yaml:"repoURL"`
-			TargetRevision string `yaml:"targetRevision"`
-			Path           string `yaml:"path"`
-			Directory      struct {
-				Recurse bool `yaml:"recurse"`
-			} `yaml:"directory"`
-		} `yaml:"source"`
-		Destination struct {
-			Server    string `yaml:"server"`
-			Namespace string `yaml:"namespace"`
-		} `yaml:"destination"`
-		SyncPolicy struct {
-			Automated struct {
-				Prune      bool `yaml:"prune"`
-				SelfHeal   bool `yaml:"selfHeal"`
-				AllowEmpty bool `yaml:"allowEmpty"`
-			} `yaml:"automated"`
-
-			SyncOptions []string `yaml:"syncOptions"`
-		} `yaml:"syncPolicy"`
-		IgnoreDifferences []struct {
-			Group string `yaml:"group"`
-			Kind  string `yaml:"kind"`
-		} `yaml:"ignoreDifferences"`
-	} `yaml:"spec"`
-}
-
 func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
 	for _, repo := range repos {
 		log.Info("Found repository", "name", repo.Name, "full_name", repo.FullName, "url", repo.CloneURL)
@@ -242,4 +204,59 @@ func IsPackageTransitioned(clusterPolicy *transitionv1.ClusterPolicy, pkg transi
 	// 	}
 	// }
 	return false
+}
+
+func CreateAndPushVeleroRestore(
+	ctx context.Context,
+	client *gitea.Client,
+	username, repoName, folder string,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	transitionPackage transitionv1.PackageSelector,
+	log logr.Logger,
+	backupInfo transitionv1.BackupInformation,
+) (error, string) {
+
+	// excludedResources := []string{"events.k8s.io", "nodes"}
+	includedNamespaces := []string{"*"}
+	itemOperationTimeout := "4h0m0s"
+
+	app := VeleroRestore{
+		APIVersion: "velero.io/v1",
+		Kind:       "Restore",
+	}
+
+	app.Metadata.Name = fmt.Sprintf("velero-%s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+	app.Metadata.Namespace = "velero"
+
+	app.Spec.BackupName = backupInfo.Name
+	// app.Spec.ExcludedResources = excludedResources
+	app.Spec.IncludedNamespaces = includedNamespaces
+	app.Spec.ItemOperationTimeout = itemOperationTimeout
+
+	yamlData, err := yaml.Marshal(app)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Velero restore YAML: %w", err), ""
+	}
+
+	timestamp := time.Now().Format("20060102-150405")
+	filename := fmt.Sprintf("%s/velero-restore-%s.yaml", folder, timestamp)
+	message := fmt.Sprintf("Velero restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+
+	encodedContent := base64.StdEncoding.EncodeToString(yamlData)
+
+	fileOpts := gitea.CreateFileOptions{
+		Content: encodedContent,
+		FileOptions: gitea.FileOptions{
+			Message:    message,
+			BranchName: "main",
+		},
+	}
+
+	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
+	if err != nil {
+		return fmt.Errorf("failed to create file in Gitea: %w", err), ""
+	}
+
+	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
+	return nil, filename
 }

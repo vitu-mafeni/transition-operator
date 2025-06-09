@@ -167,7 +167,7 @@ kubectl create secret generic git-user-secret \
 ```
 ## Create environment variables
 ```bash
-export GIT_SERVER_URL="http://192.168.28.216:30656"
+export GIT_SERVER_URL="http://192.168.28.137:30524"
 export GIT_SECRET_NAME="git-user-secret"
 export GIT_SECRET_NAMESPACE="default"
 export POD_NAMESPACE="default"
