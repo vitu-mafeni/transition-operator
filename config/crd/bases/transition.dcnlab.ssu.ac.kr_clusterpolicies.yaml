@@ -140,7 +140,44 @@ spec:
             - transitionMode
             type: object
           status:
-            description: ClusterPolicyStatus defines the observed state of ClusterPolicy.
+            properties:
+              transitionedPackages:
+                description: |-
+                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+                  Important: Run "make" to regenerate code after modifying this file
+                items:
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    packageSelectors:
+                      items:
+                        description: PackageSelector defines individual package selection
+                          criteria
+                        properties:
+                          name:
+                            type: string
+                          packagePath:
+                            type: string
+                          packageType:
+                            description: PackageType defines the type of package (stateless
+                              or stateful)
+                            type: string
+                          selected:
+                            type: boolean
+                        required:
+                        - name
+                        - packagePath
+                        - packageType
+                        - selected
+                        type: object
+                      type: array
+                    packageTransitionCondition:
+                      type: string
+                    packageTransitionMessage:
+                      type: string
+                  type: object
+                type: array
             type: object
         type: object
     served: true

@@ -83,7 +83,7 @@ func CreateAndPushArgoApp(
 	clusterPolicy *transitionv1.ClusterPolicy,
 	transitionPackage transitionv1.PackageSelector,
 	log logr.Logger,
-) error {
+) (error, string) {
 	app := ArgoAppSpec{
 		APIVersion: "argoproj.io/v1alpha1",
 		Kind:       "Application",
@@ -118,7 +118,7 @@ func CreateAndPushArgoApp(
 
 	yamlData, err := yaml.Marshal(app)
 	if err != nil {
-		return fmt.Errorf("failed to marshal Argo application YAML: %w", err)
+		return fmt.Errorf("failed to marshal Argo application YAML: %w", err), ""
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
@@ -137,11 +137,11 @@ func CreateAndPushArgoApp(
 
 	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
 	if err != nil {
-		return fmt.Errorf("failed to create file in Gitea: %w", err)
+		return fmt.Errorf("failed to create file in Gitea: %w", err), ""
 	}
 
 	log.Info("Successfully pushed Argo application", "repo", repoName, "file", filename)
-	return nil
+	return nil, filename
 }
 
 func GetMostRecentNodeCondition(node corev1.Node) *corev1.NodeCondition {
@@ -203,4 +203,43 @@ func GetNodeStatusSummary(node corev1.Node) string {
 	}
 
 	return status
+}
+
+// IsPackageTransitioned returns true if the given package is already in the TransitionedPackages list.
+func IsPackageTransitioned(clusterPolicy *transitionv1.ClusterPolicy, pkg transitionv1.PackageSelector) bool {
+
+	var latestMatch *transitionv1.TransitionedPackages
+	for i, transitioned := range clusterPolicy.Status.TransitionedPackages {
+		for _, sel := range transitioned.PackageSelectors {
+			if sel.Name == pkg.Name {
+				if latestMatch == nil || transitioned.LastTransitionTime.After(latestMatch.LastTransitionTime.Time) {
+					latestMatch = &clusterPolicy.Status.TransitionedPackages[i]
+				}
+			}
+		}
+	}
+
+	if latestMatch != nil {
+		switch latestMatch.PackageTransitionCondition {
+		case transitionv1.PackageTransitionConditionCompleted:
+			return true
+		case transitionv1.PackageTransitionConditionInProgress:
+			return false
+		}
+	}
+
+	// for _, transitioned := range clusterPolicy.Status.TransitionedPackages {
+	// 	for _, sel := range transitioned.PackageSelectors {
+	// 		if sel.Name == pkg.Name {
+	// 			if transitioned.PackageTransitionCondition == transitionv1.PackageTransitionConditionCompleted {
+	// 				return true
+
+	// 			}
+	// 			if transitioned.PackageTransitionCondition == transitionv1.PackageTransitionConditionInProgress {
+	// 				return false
+	// 			}
+	// 		}
+	// 	}
+	// }
+	return false
 }
