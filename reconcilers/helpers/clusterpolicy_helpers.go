@@ -214,7 +214,7 @@ func CreateAndPushVeleroRestore(
 	transitionPackage transitionv1.PackageSelector,
 	log logr.Logger,
 	backupInfo transitionv1.BackupInformation,
-) (error, string) {
+) (string, error) {
 
 	// excludedResources := []string{"events.k8s.io", "nodes"}
 	includedNamespaces := []string{"*"}
@@ -235,7 +235,7 @@ func CreateAndPushVeleroRestore(
 
 	yamlData, err := yaml.Marshal(app)
 	if err != nil {
-		return fmt.Errorf("failed to marshal Velero restore YAML: %w", err), ""
+		return "", fmt.Errorf("failed to marshal Velero restore YAML: %w", err)
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
@@ -254,9 +254,9 @@ func CreateAndPushVeleroRestore(
 
 	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
 	if err != nil {
-		return fmt.Errorf("failed to create file in Gitea: %w", err), ""
+		return "", fmt.Errorf("failed to create file in Gitea: %w", err)
 	}
 
 	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
-	return nil, filename
+	return filename, nil
 }

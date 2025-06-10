@@ -475,6 +475,13 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			}
 		}
 
+		//backup name cannot be empty
+
+		if backupMatching.Name == "" {
+			log.Error(err, "Failed to find a proper backup - backup name cannot be empty")
+			return
+		}
+
 		// log.Info("--------------------------------------------------------------------\n")
 		// log.Info("--------------------------------------------------------------------\n")
 		// log.Info("--------------------------------------------------------------------\n")
@@ -484,7 +491,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 		// log.Error(fmt.Errorf("THIS IS AN error b"), "msg", backupMatching.Name)
 
-		err, _ := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching)
+		_, err := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching)
 		if err != nil {
 			log.Error(err, "Failed to push Velero manifest")
 			//add status that it failed to transition the package

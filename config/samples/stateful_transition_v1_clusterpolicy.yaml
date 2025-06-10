@@ -18,7 +18,7 @@ spec:
       backupInformation:
         - name: cluster1-backup # Backup Name
           backupType: Manual # Manual, Schedule
-        - name: cluster1-backup-every-5-min # Schedule Name
+        - name: cluster1vt-backup-every-5-min # Schedule Name
           backupType: Schedule # Manual, Schedule
   packageRetentionPolicy:
     retainOnSource: false
