@@ -398,27 +398,38 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 				}
 
 				var latestTime time.Time
+				var foundValidBackup bool
 
 				for _, veleroBackup := range backupListVelero.Items {
 					scheduleName, ok := veleroBackup.Labels["velero.io/schedule-name"]
-					if ok {
-						log.Info("Found velero backup with schedule-name label", "backup", veleroBackup.Name, "schedule-name", scheduleName)
+					if !ok || scheduleName != backup.Name {
+						continue
+					}
 
-						if scheduleName == backup.Name {
-							// Check if this is the most recent
-							created := veleroBackup.CreationTimestamp.Time
-							if latestTime.IsZero() || created.After(latestTime) {
-								latestTime = created
-								backupMatching.Name = veleroBackup.Name
-								backupMatching.BackupType = backup.BackupType
-							}
-						}
+					// Skip backups not in a successful phase
+					if veleroBackup.Status.Phase != "Completed" {
+						log.Info("Skipping Velero backup with non-successful phase", "backup", veleroBackup.Name, "phase", veleroBackup.Status.Phase)
+						continue
+					}
+
+					created := veleroBackup.CreationTimestamp.Time
+					if latestTime.IsZero() || created.After(latestTime) {
+						latestTime = created
+						backupMatching.Name = veleroBackup.Name
+						backupMatching.BackupType = backup.BackupType
+						foundValidBackup = true
 					}
 				}
 
+				if foundValidBackup {
+					log.Info("Found latest successful velero backup from Velero Schedule", "backup", backupMatching.Name, "createdAt", latestTime)
+				} else {
+					log.Info("No successful velero backups found for Velero Schedule", "schedule-name", backup.Name)
+				}
+
 			case transitionv1.BackupTypeManual:
-				scheme := runtime.NewScheme()
-				_ = velero.AddToScheme(scheme)
+				// scheme := runtime.NewScheme()
+				// _ = velero.AddToScheme(scheme)
 				backupListVelero := &velero.BackupList{}
 				if err := clusterClient.List(ctx, backupListVelero, &client.ListOptions{
 					Namespace: "velero", // Or leave blank for all namespaces (if using client.Cluster),
@@ -432,23 +443,46 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 				}
 
 				var latestTime time.Time
+				var foundValidBackup bool
 
 				for _, veleroBackup := range backupListVelero.Items {
 
-					if veleroBackup.Name == backup.Name {
-						// Check if this is the most recent
-						created := veleroBackup.CreationTimestamp.Time
-						if latestTime.IsZero() || created.After(latestTime) {
-							latestTime = created
-							backupMatching.Name = veleroBackup.Name
-							backupMatching.BackupType = backup.BackupType
-						}
+					if veleroBackup.Name != backup.Name {
+						continue
+					}
+
+					// Skip backups not in a successful phase
+					if veleroBackup.Status.Phase != "Completed" {
+						log.Info("Skipping Velero backup with non-successful phase", "backup", veleroBackup.Name, "phase", veleroBackup.Status.Phase)
+						continue
+					}
+
+					created := veleroBackup.CreationTimestamp.Time
+					if latestTime.IsZero() || created.After(latestTime) {
+						latestTime = created
+						backupMatching.Name = veleroBackup.Name
+						backupMatching.BackupType = backup.BackupType
+						foundValidBackup = true
+					}
+					if foundValidBackup {
+						log.Info("Found latest successful velero backup", "backup", backupMatching.Name, "createdAt", latestTime)
+					} else {
+						log.Info("No successful velero backups found for schedule", "schedule-name", backup.Name)
 					}
 
 				}
 
 			}
 		}
+
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+
+		// log.Error(fmt.Errorf("THIS IS AN error b"), "msg", backupMatching.Name)
 
 		err, _ := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching)
 		if err != nil {
