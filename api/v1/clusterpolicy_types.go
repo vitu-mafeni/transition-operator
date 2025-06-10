@@ -45,6 +45,15 @@ const (
 	PackageTransitionConditionFailed     PackageTransitionCondition = "Failed"
 )
 
+// BackupType defines the type of backup in Velero backups
+type BackupType string
+
+const (
+	BackupTypeSchedule BackupType = "Schedule"
+	// PackageTypeStateful means stateful packages will be transitioned.
+	BackupTypeManual BackupType = "Manual"
+)
+
 // +enum
 type SelectMode string
 
@@ -70,10 +79,16 @@ type ClusterSelector struct {
 
 // PackageSelector defines individual package selection criteria
 type PackageSelector struct {
-	Name        string      `json:"name"`
-	PackagePath string      `json:"packagePath"`
-	PackageType PackageType `json:"packageType"` // e.g., stateful, stateless
-	Selected    bool        `json:"selected"`
+	Name              string              `json:"name"`
+	PackagePath       string              `json:"packagePath"`
+	PackageType       PackageType         `json:"packageType"` // e.g., stateful, stateless
+	Selected          bool                `json:"selected"`
+	BackupInformation []BackupInformation `json:"backupInformation"`
+}
+
+type BackupInformation struct {
+	Name       string     `json:"name"`
+	BackupType BackupType `json:"backupType"`
 }
 
 // PackageRetentionPolicy defines rules for source cleanup after transition

@@ -39,6 +39,9 @@ import (
 	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
 	"github.com/vitu1234/transition-operator/reconcilers/helpers"
 	giteahelpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
+
+	velero "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -83,10 +86,10 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, req.NamespacedName, clusterPolicy); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Error(err, "ClusterPolicy resource not found.")
-			return ctrl.Result{RequeueAfter: 60 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 		}
 		log.Error(err, "Failed to get ClusterPolicy resource")
-		return ctrl.Result{RequeueAfter: 60 * time.Second}, err
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
 
 	}
 
@@ -111,7 +114,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Example: log the number of clusters
 	// logf.FromContext(ctx).Info("Number of clusters", "count", numClusters)
 
-	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
 func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, cluster *capiv1beta1.Cluster, req ctrl.Request) {
@@ -375,6 +378,142 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 	switch transitionPackage.PackageType {
 	case transitionv1.PackageTypeStateful:
 		log.Info("Handling stateful package transition", "package", transitionPackage.Name)
+
+		backupMatching := transitionv1.BackupInformation{}
+
+		for _, backup := range transitionPackage.BackupInformation {
+			switch backup.BackupType {
+			case transitionv1.BackupTypeSchedule:
+
+				backupListVelero := &velero.BackupList{}
+				if err := clusterClient.List(ctx, backupListVelero, &client.ListOptions{
+					Namespace: "velero", // Or leave blank for all namespaces (if using client.Cluster),
+				}); err != nil {
+					log.Error(err, "failed to list registered velero backups")
+				}
+
+				if len(backupListVelero.Items) == 0 {
+					log.Info("No velero backups found.")
+					return
+				}
+
+				var latestTime time.Time
+				var foundValidBackup bool
+
+				for _, veleroBackup := range backupListVelero.Items {
+					scheduleName, ok := veleroBackup.Labels["velero.io/schedule-name"]
+					if !ok || scheduleName != backup.Name {
+						continue
+					}
+
+					// Skip backups not in a successful phase
+					if veleroBackup.Status.Phase != "Completed" {
+						log.Info("Skipping Velero backup with non-successful phase", "backup", veleroBackup.Name, "phase", veleroBackup.Status.Phase)
+						continue
+					}
+
+					created := veleroBackup.CreationTimestamp.Time
+					if latestTime.IsZero() || created.After(latestTime) {
+						latestTime = created
+						backupMatching.Name = veleroBackup.Name
+						backupMatching.BackupType = backup.BackupType
+						foundValidBackup = true
+					}
+				}
+
+				if foundValidBackup {
+					log.Info("Found latest successful velero backup from Velero Schedule", "backup", backupMatching.Name, "createdAt", latestTime)
+				} else {
+					log.Info("No successful velero backups found for Velero Schedule", "schedule-name", backup.Name)
+				}
+
+			case transitionv1.BackupTypeManual:
+				// scheme := runtime.NewScheme()
+				// _ = velero.AddToScheme(scheme)
+				backupListVelero := &velero.BackupList{}
+				if err := clusterClient.List(ctx, backupListVelero, &client.ListOptions{
+					Namespace: "velero", // Or leave blank for all namespaces (if using client.Cluster),
+				}); err != nil {
+					log.Error(err, "failed to list registered velero backups")
+				}
+
+				if len(backupListVelero.Items) == 0 {
+					log.Info("No velero backups found.")
+					return
+				}
+
+				var latestTime time.Time
+				var foundValidBackup bool
+
+				for _, veleroBackup := range backupListVelero.Items {
+
+					if veleroBackup.Name != backup.Name {
+						continue
+					}
+
+					// Skip backups not in a successful phase
+					if veleroBackup.Status.Phase != "Completed" {
+						log.Info("Skipping Velero backup with non-successful phase", "backup", veleroBackup.Name, "phase", veleroBackup.Status.Phase)
+						continue
+					}
+
+					created := veleroBackup.CreationTimestamp.Time
+					if latestTime.IsZero() || created.After(latestTime) {
+						latestTime = created
+						backupMatching.Name = veleroBackup.Name
+						backupMatching.BackupType = backup.BackupType
+						foundValidBackup = true
+					}
+					if foundValidBackup {
+						log.Info("Found latest successful velero backup", "backup", backupMatching.Name, "createdAt", latestTime)
+					} else {
+						log.Info("No successful velero backups found for schedule", "schedule-name", backup.Name)
+					}
+
+				}
+
+			}
+		}
+
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+		// log.Info("--------------------------------------------------------------------\n")
+
+		// log.Error(fmt.Errorf("THIS IS AN error b"), "msg", backupMatching.Name)
+
+		err, _ := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching)
+		if err != nil {
+			log.Error(err, "Failed to push Velero manifest")
+			//add status that it failed to transition the package
+			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+				LastTransitionTime:         metav1.Now(),
+				PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
+				PackageTransitionMessage:   err.Error(),
+			})
+
+			if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+				log.Error(err, "Failed to update ClusterPolicy status after transition failure")
+				return
+			}
+			return
+		}
+		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+			LastTransitionTime:         metav1.Now(),
+			PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
+			PackageTransitionMessage:   "Transitioned stateful package successfully",
+		})
+
+		if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+			log.Error(err, "Failed to update ClusterPolicy status after successful stateful transition")
+			return
+		}
+		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
+		return
 
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
