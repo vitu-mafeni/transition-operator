@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,9 @@ import (
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
@@ -259,4 +263,51 @@ func CreateAndPushVeleroRestore(
 
 	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
 	return filename, nil
+}
+
+func triggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace string) error {
+	ctx := context.TODO()
+
+	// Get the current Application object
+	var app argov1alpha1.Application
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Name:      appName,
+		Namespace: namespace,
+	}, &app)
+	if err != nil {
+		return fmt.Errorf("failed to get Argo CD application: %w", err)
+	}
+
+	// Deep copy to modify
+	updated := app.DeepCopy()
+	now := time.Now().UTC()
+
+	// Update Operation field to trigger sync
+	updated.Operation = &argov1alpha1.Operation{
+		Sync: &argov1alpha1.SyncOperation{
+			Revision: "HEAD",
+		},
+		InitiatedBy: argov1alpha1.OperationInitiator{
+			Username: "gitea-client",
+		},
+		StartedAt: &now,
+	}
+
+	// Create a patch
+	origData, err := json.Marshal(app)
+	if err != nil {
+		return err
+	}
+	modifiedData, err := json.Marshal(updated)
+	if err != nil {
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(origData, modifiedData, argov1alpha1.Application{})
+	if err != nil {
+		return err
+	}
+
+	// Apply patch
+	return k8sClient.Patch(ctx, updated, client.RawPatch(types.MergePatchType, patchBytes))
 }
