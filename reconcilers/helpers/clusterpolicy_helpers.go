@@ -9,10 +9,12 @@ import (
 	"time"
 
 	gitea "code.gitea.io/sdk/gitea"
+	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -280,7 +282,7 @@ func triggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace
 
 	// Deep copy to modify
 	updated := app.DeepCopy()
-	now := time.Now().UTC()
+	// now := time.Now().UTC()
 
 	// Update Operation field to trigger sync
 	updated.Operation = &argov1alpha1.Operation{
@@ -290,7 +292,7 @@ func triggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace
 		InitiatedBy: argov1alpha1.OperationInitiator{
 			Username: "gitea-client",
 		},
-		StartedAt: &now,
+		// StartedAt: &now,
 	}
 
 	// Create a patch
@@ -310,4 +312,45 @@ func triggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace
 
 	// Apply patch
 	return k8sClient.Patch(ctx, updated, client.RawPatch(types.MergePatchType, patchBytes))
+}
+
+// TriggerArgoCDSync patches an Argo CD Application to trigger a sync operation
+func TriggerArgoCDSync(k8sClient client.Client, appName, namespace string) error {
+	ctx := context.TODO()
+
+	// Get the current Application as unstructured
+	app := &unstructured.Unstructured{}
+	app.SetGroupVersionKind(argoAppGVR)
+
+	if err := k8sClient.Get(ctx, types.NamespacedName{
+		Name:      appName,
+		Namespace: namespace,
+	}, app); err != nil {
+		return fmt.Errorf("failed to get Argo CD application: %w", err)
+	}
+
+	// Make a deep copy for modification
+	modified := app.DeepCopy()
+
+	operation := map[string]interface{}{
+		"sync": map[string]interface{}{
+			"revision": "HEAD",
+		},
+		"initiatedBy": map[string]interface{}{
+			"username": "gitea-client",
+		},
+	}
+
+	if err := unstructured.SetNestedMap(modified.Object, operation, "operation"); err != nil {
+		return fmt.Errorf("failed to set sync operation: %w", err)
+	}
+
+	// Create a JSON Merge Patch
+	modifiedJSON, err := json.Marshal(modified)
+	if err != nil {
+		return err
+	}
+
+	patch := client.RawPatch(types.MergePatchType, modifiedJSON)
+	return k8sClient.Patch(ctx, modified, patch)
 }

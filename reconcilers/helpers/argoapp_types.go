@@ -1,5 +1,7 @@
 package helpers
 
+import "k8s.io/apimachinery/pkg/runtime/schema"
+
 type ArgoAppSpec struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
@@ -36,4 +38,10 @@ type ArgoAppSpec struct {
 			Kind  string `yaml:"kind"`
 		} `yaml:"ignoreDifferences"`
 	} `yaml:"spec"`
+}
+
+var argoAppGVR = schema.GroupVersionKind{
+	Group:   "argoproj.io",
+	Version: "v1alpha1",
+	Kind:    "Application",
 }
