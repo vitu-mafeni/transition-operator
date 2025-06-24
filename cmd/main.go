@@ -43,6 +43,7 @@ import (
 
 	// +kubebuilder:scaffold:imports
 
+	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
 
@@ -53,10 +54,12 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(velerov1.AddToScheme(scheme)) // ← Add this line
+	utilruntime.Must(velerov1.AddToScheme(scheme))     // ← Add this line
+	utilruntime.Must(argov1alpha1.AddToScheme(scheme)) // ← Add this line
 	utilruntime.Must(transitionv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 	_ = capiv1beta1.AddToScheme(scheme)
+	// _ = argov1alpha1.AddToScheme(scheme)
 
 }
 

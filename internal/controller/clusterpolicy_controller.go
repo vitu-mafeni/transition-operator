@@ -32,6 +32,7 @@ import (
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
@@ -105,7 +106,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			r.performWorkloadClusterPolicyActions(ctx, clusterPolicy, &workload_cluster, req)
 			// log.Info("Performed actions for matching cluster", "cluster", cluster.Name)
 		} else {
-			log.Info("Cluster does not match ClusterPolicy selector - skipping", "cluster", workload_cluster.Name)
+			// log.Info("Cluster does not match ClusterPolicy selector - skipping", "cluster", workload_cluster.Name)
 
 		}
 	}
@@ -144,7 +145,7 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 
 	//get all machine statuses
 	for _, machine := range machineList.Items {
-		log.Info("Machine found", "name", machine.Name, "status", machine.Status.Phase)
+		// log.Info("Machine found", "name", machine.Name, "status", machine.Status.Phase)
 		//check
 		if machine.Status.Phase != "Running" {
 			r.handleWorkloadClusterMachine(ctx, clusterPolicy, capiCluster, &machine, req)
@@ -176,13 +177,13 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 		log.Error(err, "Failed to list pods for cluster", "cluster", cluster.Name)
 		return
 	}
-	log.Info("Found nodes in cluster", "count", len(nodeList.Items))
+	// log.Info("Found nodes in cluster", "count", len(nodeList.Items))
 	//list all pods in the cluster
 	for _, node := range nodeList.Items {
 		// log.Info("Node found", "name", node.Name, "status", node.Status, "addresses", node.Status.Addresses)
 		//get node type, control-plane or worker
 		status := helpers.GetNodeStatusSummary(node)
-		log.Info("Node status", "name", node.Name, "status", status)
+		// log.Info("Node status", "name", node.Name, "status", status)
 		if status != "Ready" {
 			log.Info("Node is not ready, checking conditions", "name", node.Name)
 			// transition workloads on this node
@@ -640,8 +641,8 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(ctx context.Context,
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {
-	log := logf.FromContext(ctx)
-	log.Info("Mapping Cluster to ClusterPolicy", "cluster", obj.GetName())
+	// log := logf.FromContext(ctx)
+	// log.Info("Mapping Cluster to ClusterPolicy", "cluster", obj.GetName())
 
 	// Assuming the ClusterPolicy is named after the Cluster
 	// clusterName := obj.GetName()
@@ -660,6 +661,10 @@ func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&transitionv1.ClusterPolicy{}).
 		Watches(
 			&capiv1beta1.Cluster{},
+			handler.EnqueueRequestsFromMapFunc(r.mapClusterToClusterPolicy),
+		).
+		Watches(
+			&v1alpha1.Application{},
 			handler.EnqueueRequestsFromMapFunc(r.mapClusterToClusterPolicy),
 		).
 		Complete(r)

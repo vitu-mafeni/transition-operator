@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"strings"
 
+	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	corev1 "k8s.io/api/core/v1"
@@ -113,6 +114,9 @@ func getCapiClusterClient(secret *corev1.Secret) (resource.APIPatchingApplicator
 
 	utilruntime.Must(velerov1.AddToScheme(s))
 	_ = velerov1.AddToScheme(scheme)
+
+	_ = argov1alpha1.AddToScheme(scheme)
+	// Add other APIs you use...
 
 	//provide a rest config from the secret value
 	config, err := clientcmd.RESTConfigFromKubeConfig(secret.Data["value"])

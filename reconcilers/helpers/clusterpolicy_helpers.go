@@ -16,7 +16,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -281,13 +280,18 @@ func TriggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace
 	}
 
 	// Deep copy to modify
-	updated := app.DeepCopy()
+	// updated := app.DeepCopy()
 	// now := time.Now().UTC()
 
 	// Update Operation field to trigger sync
-	updated.Operation = &argov1alpha1.Operation{
+	app.Operation = &argov1alpha1.Operation{
 		Sync: &argov1alpha1.SyncOperation{
 			Revision: "HEAD",
+			SyncStrategy: &argov1alpha1.SyncStrategy{
+				Apply: &argov1alpha1.SyncStrategyApply{
+					Force: true, // This enables kubectl apply --force
+				},
+			},
 		},
 		InitiatedBy: argov1alpha1.OperationInitiator{
 			Username: "gitea-client",
@@ -295,23 +299,15 @@ func TriggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace
 		// StartedAt: &now,
 	}
 
-	// Create a patch
-	origData, err := json.Marshal(app)
-	if err != nil {
-		return err
-	}
-	modifiedData, err := json.Marshal(updated)
-	if err != nil {
-		return err
+	//doing operations for this argocd application
+	fmt.Printf("Triggering sync for application %v", app)
+	fmt.Printf("Triggering sync for application %s in namespace %s\n", appName, namespace)
+
+	if err := k8sClient.Update(ctx, &app); err != nil {
+		return fmt.Errorf("failed to update application with sync operation: %w", err)
 	}
 
-	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(origData, modifiedData, argov1alpha1.Application{})
-	if err != nil {
-		return err
-	}
-
-	// Apply patch
-	return k8sClient.Patch(ctx, updated, client.RawPatch(types.MergePatchType, patchBytes))
+	return nil
 }
 
 // TriggerArgoCDSync patches an Argo CD Application to trigger a sync operation
