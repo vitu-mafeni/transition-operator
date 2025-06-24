@@ -267,7 +267,7 @@ func CreateAndPushVeleroRestore(
 	return filename, nil
 }
 
-func triggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace string) error {
+func TriggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace string) error {
 	ctx := context.TODO()
 
 	// Get the current Application object

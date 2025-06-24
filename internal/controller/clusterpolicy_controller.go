@@ -508,6 +508,11 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			}
 			return
 		}
+
+		err = giteahelpers.TriggerArgoCDSyncWithKubeClient(clusterClient, clusterPolicy.Spec.ClusterSelector.Name+"-dr", "argocd")
+		if err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+		}
 		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
 			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
 			LastTransitionTime:         metav1.Now(),
