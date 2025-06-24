@@ -3,11 +3,12 @@ module github.com/vitu1234/transition-operator
 go 1.24.4
 
 require (
+	github.com/nephio-project/nephio/controllers/pkg v0.0.0-20250508061227-34f840f636b2
 	github.com/onsi/ginkgo/v2 v2.23.3
 	github.com/onsi/gomega v1.36.3
-	k8s.io/apimachinery v0.33.1
-	k8s.io/client-go v0.33.1
-	sigs.k8s.io/controller-runtime v0.21.0
+	k8s.io/apimachinery v0.31.0
+	k8s.io/client-go v0.31.0
+	sigs.k8s.io/controller-runtime v0.19.3
 )
 
 require (
@@ -25,8 +26,6 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.7.1 // indirect
 	github.com/bombsimon/logrusr/v2 v2.0.1 // indirect
 	github.com/bradleyfalzon/ghinstallation/v2 v2.12.0 // indirect
-	github.com/casbin/casbin/v2 v2.102.0 // indirect
-	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
@@ -102,7 +101,7 @@ require (
 	cel.dev/expr v0.19.1 // indirect
 	code.gitea.io/sdk/gitea v0.21.0
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
-	github.com/argoproj/argo-cd/v2 v2.14.15
+	github.com/argoproj/argo-cd/v2 v2.12.12
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -135,7 +134,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/nephio-project/nephio/controllers/pkg v0.0.0-20250508061227-34f840f636b2
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
@@ -144,7 +142,7 @@ require (
 	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
-	github.com/vmware-tanzu/velero v1.16.1
+	github.com/vmware-tanzu/velero v1.15.2
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.59.0 // indirect
@@ -182,7 +180,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20250318190949-c8a335a9a2ff // indirect
 	k8s.io/utils v0.0.0-20241104100929-3ea5e8cea738 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
-	sigs.k8s.io/cluster-api v1.10.2
+	sigs.k8s.io/cluster-api v1.8.3
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
