@@ -583,58 +583,93 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 // If the cluster policy specifies an all selection mode, it will apply the transition to all pods on the node.
 // If no selection mode is specified, it will apply the transition to all pods on the node.
 // This function is called when a node is not ready or has bad conditions, and it processes the pods on that node accordingly.
-func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(ctx context.Context, clusterClient resource.APIPatchingApplicator, node corev1.Node, podList *corev1.PodList, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request, log logr.Logger) {
-	// Iterate through the pods and take action based on the cluster policy
+func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
+	ctx context.Context,
+	clusterClient resource.APIPatchingApplicator,
+	node corev1.Node,
+	podList *corev1.PodList,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	req ctrl.Request,
+	log logr.Logger,
+) {
 	if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
 		log.Info("Applying transition policy to specific pods on node", "node", node.Name)
+
+		processed := make(map[string]struct{}) // To avoid duplicate transitions
+
 		for _, pod := range podList.Items {
-			// Step 1: Get the owning ReplicaSet of the Pod
-			for _, ownerRef := range pod.OwnerReferences {
-				if ownerRef.Kind == "ReplicaSet" && ownerRef.Controller != nil && *ownerRef.Controller {
-					replicaSet := &appsv1.ReplicaSet{}
-					err := clusterClient.Get(ctx, types.NamespacedName{
-						Name:      ownerRef.Name,
-						Namespace: pod.Namespace,
-					}, replicaSet)
-					if err != nil {
-						log.Error(err, "Failed to get ReplicaSet for pod", "pod", pod.Name)
+			workloadKind, workloadName, ok := getWorkloadControllerInfo(pod)
+			if !ok {
+				log.Info("No controller owner reference found for pod", "pod", pod.Name)
+				continue
+			}
+
+			var annotations map[string]string
+			var namespace = pod.Namespace
+			var workloadID = fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
+
+			switch workloadKind {
+			case "ReplicaSet":
+				replicaSet := &appsv1.ReplicaSet{}
+				if err := clusterClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespace}, replicaSet); err != nil {
+					log.Error(err, "Failed to get ReplicaSet", "pod", pod.Name)
+					continue
+				}
+
+				// Get Deployment owner
+				deployName, found := getControllerOwnerName(replicaSet.OwnerReferences, "Deployment")
+				if !found {
+					log.Info("ReplicaSet has no Deployment owner", "replicaSet", replicaSet.Name)
+					continue
+				}
+
+				deployment := &appsv1.Deployment{}
+				if err := clusterClient.Get(ctx, types.NamespacedName{Name: deployName, Namespace: namespace}, deployment); err != nil {
+					log.Error(err, "Failed to get Deployment", "deployment", deployName)
+					continue
+				}
+				annotations = deployment.Annotations
+				workloadID = fmt.Sprintf("%s/%s/Deployment", namespace, deployName)
+
+			case "DaemonSet":
+				daemonSet := &appsv1.DaemonSet{}
+				if err := clusterClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespace}, daemonSet); err != nil {
+					log.Error(err, "Failed to get DaemonSet", "daemonSet", workloadName)
+					continue
+				}
+				annotations = daemonSet.Annotations
+
+			case "StatefulSet":
+				statefulSet := &appsv1.StatefulSet{}
+				if err := clusterClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespace}, statefulSet); err != nil {
+					log.Error(err, "Failed to get StatefulSet", "statefulSet", workloadName)
+					continue
+				}
+				annotations = statefulSet.Annotations
+
+			default:
+				log.Info("Unsupported controller kind; skipping", "kind", workloadKind, "pod", pod.Name)
+				continue
+			}
+
+			for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
+				if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+					annotations["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
+
+					if helpers.IsPackageTransitioned(clusterPolicy, transitionPackage) {
+						log.Info("Package already transitioned; skipping", "package", transitionPackage.Name, "pod", pod.Name)
 						continue
 					}
 
-					// Step 2: Get the Deployment that owns the ReplicaSet
-					for _, rsOwnerRef := range replicaSet.OwnerReferences {
-						if rsOwnerRef.Kind == "Deployment" && rsOwnerRef.Controller != nil && *rsOwnerRef.Controller {
-							deployment := &appsv1.Deployment{}
-							err := clusterClient.Get(ctx, types.NamespacedName{
-								Name:      rsOwnerRef.Name,
-								Namespace: replicaSet.Namespace,
-							}, deployment)
-							if err != nil {
-								log.Error(err, "Failed to get Deployment for ReplicaSet", "replicaSet", replicaSet.Name)
-								continue
-							}
-
-							// log.Info("Found Deployment for Pod", "pod", pod.Name, "deployment", deployment.Name)
-
-							// Step 3: Check annotation on Deployment
-							for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
-
-								if deployment.Annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-									deployment.Annotations["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
-									//skip all packages that are already transitioned
-									if helpers.IsPackageTransitioned(clusterPolicy, transitionPackage) {
-										log.Info("Package already transitioned, skip and continue", "package", transitionPackage.Name, "pod", pod.Name)
-										continue
-									}
-
-									log.Info("Pod's parent Deployment matches transition policy", "deployment", deployment.Name, "pod", pod.Name)
-									r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-								} else {
-									log.Info("Pod's parent Deployment does not match transition policy", "deployment", "Node", node.Name, deployment.Name, "pod", pod.Name)
-								}
-							}
-						}
+					// Deduplicate by workload and package
+					key := fmt.Sprintf("%s/%s", workloadID, transitionPackage.Name)
+					if _, seen := processed[key]; seen {
+						continue
 					}
+					processed[key] = struct{}{}
+
+					log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
+					r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
 				}
 			}
 		}
@@ -642,8 +677,26 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(ctx context.Context,
 	} else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
 		r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
 	} else {
-		log.Info("No selector label or annotation specified in cluster policy, applying to all pods")
+		log.Info("Invalid or unspecified select mode; skipping policy application")
 	}
+}
+
+func getWorkloadControllerInfo(pod corev1.Pod) (kind string, name string, ok bool) {
+	for _, ref := range pod.OwnerReferences {
+		if ref.Controller != nil && *ref.Controller {
+			return ref.Kind, ref.Name, true
+		}
+	}
+	return "", "", false
+}
+
+func getControllerOwnerName(refs []metav1.OwnerReference, kind string) (string, bool) {
+	for _, ref := range refs {
+		if ref.Kind == kind && ref.Controller != nil && *ref.Controller {
+			return ref.Name, true
+		}
+	}
+	return "", false
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {

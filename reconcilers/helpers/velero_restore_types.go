@@ -16,3 +16,18 @@ type VeleroRestore struct {
 		ItemOperationTimeout string            `yaml:"itemOperationTimeout,omitempty" json:"itemOperationTimeout,omitempty"`
 	} `yaml:"spec"`
 }
+
+// apiVersion: velero.io/v1
+// kind: Restore
+// metadata:
+//   name: edge-iot-state-restore
+//   namespace: velero
+// spec:
+//   backupName: edge-iot-backup
+//   includedNamespaces:
+//     - edge-iot
+//   includedResources:
+//     - persistentvolumeclaims
+//     - secrets
+//   restorePVs: true
+//   preserveNodePorts: true
