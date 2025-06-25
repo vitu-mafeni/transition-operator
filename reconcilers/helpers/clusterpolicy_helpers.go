@@ -25,9 +25,10 @@ func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
 	}
 }
 
-func DetermineTargetRepo(policy *transitionv1.ClusterPolicy, log logr.Logger) (string, bool) {
+func DetermineTargetRepo(policy *transitionv1.ClusterPolicy, log logr.Logger) (string, string, bool) {
 	highestWeight := -1
 	var repo string
+	var targetClusterName string
 
 	for _, target := range policy.Spec.TargetClusterPolicy.PreferClusters {
 		if target.RepoType != "git" {
@@ -37,10 +38,11 @@ func DetermineTargetRepo(policy *transitionv1.ClusterPolicy, log logr.Logger) (s
 		if target.Weight > highestWeight {
 			highestWeight = target.Weight
 			repo = target.Name + "-dr"
+			targetClusterName = target.Name
 		}
 	}
 
-	return repo, repo != ""
+	return repo, targetClusterName, repo != ""
 }
 
 func CreateAndPushArgoApp(

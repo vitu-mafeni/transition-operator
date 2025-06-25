@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"code.gitea.io/sdk/gitea"
@@ -370,9 +371,15 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 	giteahelpers.LogRepositories(log, repos)
 	log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
-	targetRepoName, found := giteahelpers.DetermineTargetRepo(clusterPolicy, log)
+	targetRepoName, targetClusterName, found := giteahelpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
 		log.Info("No suitable target repository found; canceling transition")
+		return
+	}
+
+	_, err, targetClusterClient := r.GetWorkloadClusterClientByName(ctx, targetClusterName)
+	if err != nil {
+		log.Error(err, "Failed to get target workload cluster client", "cluster", targetClusterName)
 		return
 	}
 
@@ -483,15 +490,6 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			return
 		}
 
-		// log.Info("--------------------------------------------------------------------\n")
-		// log.Info("--------------------------------------------------------------------\n")
-		// log.Info("--------------------------------------------------------------------\n")
-		// log.Info("--------------------------------------------------------------------\n")
-		// log.Info("--------------------------------------------------------------------\n")
-		// log.Info("--------------------------------------------------------------------\n")
-
-		// log.Error(fmt.Errorf("THIS IS AN error b"), "msg", backupMatching.Name)
-
 		_, err := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching)
 		if err != nil {
 			log.Error(err, "Failed to push Velero manifest")
@@ -512,7 +510,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 		message := "Transitioned stateful package successfully"
 
-		err = giteahelpers.TriggerArgoCDSyncWithKubeClient(clusterClient, clusterPolicy.Spec.ClusterSelector.Name+"-dr", "argocd")
+		err = giteahelpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
 		if err != nil {
 			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
 			message += "; but the ArgoCD sync was not triggered successfully"
@@ -653,6 +651,30 @@ func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context,
 	// 	{NamespacedName: types.NamespacedName{Name: policyName}},
 	// }
 	return []reconcile.Request{}
+}
+
+func (r *ClusterPolicyReconciler) GetWorkloadClusterClientByName(ctx context.Context, clusterName string) (*capictrl.Capi, error, resource.APIPatchingApplicator) {
+	log := logf.FromContext(ctx)
+	log.Info("Getting CAPI client for cluster", "clusterName", clusterName)
+
+	capiCluster, err := capictrl.GetCapiClusterFromName(ctx, clusterName, "default", r.Client)
+	if err != nil {
+		log.Error(err, "Failed to get CAPI cluster")
+		return nil, err, resource.APIPatchingApplicator{}
+	}
+
+	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
+		return nil, err, resource.APIPatchingApplicator{}
+	}
+	if !ready {
+		log.Info("Cluster is not ready", "cluster", capiCluster.GetClusterName())
+		return nil, fmt.Errorf("cluster is not ready"), resource.APIPatchingApplicator{}
+	}
+
+	return capiCluster, nil, clusterClient
+
 }
 
 // SetupWithManager sets up the controller with the Manager.
