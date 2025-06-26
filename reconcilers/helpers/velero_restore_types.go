@@ -11,6 +11,9 @@ type VeleroRestore struct {
 	Spec struct {
 		BackupName           string            `yaml:"backupName" json:"backupName"`
 		ExcludedResources    []string          `yaml:"excludedResources,omitempty" json:"excludedResources,omitempty"`
+		IncludedResources    []string          `yaml:"includedResources,omitempty" json:"includedResources,omitempty"`
+		RestorePVs           bool              `yaml:"restorePVs,omitempty" json:"restorePVs,omitempty"`
+		PreserveNodePorts    bool              `yaml:"preserveNodePorts,omitempty" json:"preserveNodePorts,omitempty"`
 		Hooks                map[string]string `yaml:"hooks,omitempty" json:"hooks,omitempty"` // Update type if hooks are used
 		IncludedNamespaces   []string          `yaml:"includedNamespaces,omitempty" json:"includedNamespaces,omitempty"`
 		ItemOperationTimeout string            `yaml:"itemOperationTimeout,omitempty" json:"itemOperationTimeout,omitempty"`

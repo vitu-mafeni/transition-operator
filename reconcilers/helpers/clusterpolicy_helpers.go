@@ -238,6 +238,9 @@ func CreateAndPushVeleroRestore(
 	app.Spec.BackupName = backupInfo.Name
 	// app.Spec.ExcludedResources = excludedResources
 	app.Spec.IncludedNamespaces = includedNamespaces
+	app.Spec.IncludedResources = []string{"persistentvolumeclaims", "secrets", "configmaps"}
+	app.Spec.PreserveNodePorts = true
+	app.Spec.RestorePVs = true
 	app.Spec.ItemOperationTimeout = itemOperationTimeout
 
 	yamlData, err := yaml.Marshal(app)
