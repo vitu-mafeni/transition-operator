@@ -83,6 +83,7 @@ func CreateAndPushArgoApp(
 	}{
 		{Group: "fn.kpt.dev", Kind: "ApplyReplacements"},
 		{Group: "fn.kpt.dev", Kind: "StarlarkRun"},
+		{Group: "infra.nephio.org", Kind: "WorkloadCluster"}, // <-- Add this
 	}
 
 	yamlData, err := yaml.Marshal(app)
@@ -238,9 +239,10 @@ func CreateAndPushVeleroRestore(
 	app.Spec.BackupName = backupInfo.Name
 	// app.Spec.ExcludedResources = excludedResources
 	app.Spec.IncludedNamespaces = includedNamespaces
-	app.Spec.IncludedResources = []string{"persistentvolumeclaims", "secrets", "configmaps"}
-	app.Spec.PreserveNodePorts = true
-	app.Spec.RestorePVs = true
+	// app.Spec.IncludedResources = []string{"persistentvolumeclaims", "secrets", "configmaps"}
+	// app.Spec.ExcludedResources = []string{"deployments", "replicasets", "statefulsets", "daemonsets", "pods", "services", "ingresses", "networkpolicies", "horizontalpodautoscalers"}
+	// app.Spec.PreserveNodePorts = true
+	// app.Spec.RestorePVs = true
 	app.Spec.ItemOperationTimeout = itemOperationTimeout
 
 	yamlData, err := yaml.Marshal(app)
@@ -264,10 +266,15 @@ func CreateAndPushVeleroRestore(
 
 	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
 	if err != nil {
-		return "", fmt.Errorf("failed to create file in Gitea: %w", err)
+		return "", fmt.Errorf("failed to create velero restore file in Gitea: %w", err)
 	}
 
 	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
+	// we have to push argo app to the same folder
+	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
+	if err != nil {
+		return "", fmt.Errorf("Stateful workload final restore file - Failed to create argocd application restore file in Gitea: %w", err)
+	}
 	return filename, nil
 }
 
@@ -305,8 +312,8 @@ func TriggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace
 	}
 
 	//doing operations for this argocd application
-	fmt.Printf("Triggering sync for application %v", app)
-	fmt.Printf("Triggering sync for application %s in namespace %s\n", appName, namespace)
+	// fmt.Printf("Triggering sync for application %v", app)
+	// fmt.Printf("Triggering sync for application %s in namespace %s\n", appName, namespace)
 
 	if err := k8sClient.Update(ctx, &app); err != nil {
 		return fmt.Errorf("failed to update application with sync operation: %w", err)
