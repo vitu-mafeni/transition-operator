@@ -241,7 +241,7 @@ func CreateAndPushVeleroRestore(
 	app.Spec.IncludedNamespaces = includedNamespaces
 	// app.Spec.IncludedResources = []string{"persistentvolumeclaims", "secrets", "configmaps"}
 	// app.Spec.ExcludedResources = []string{"deployments", "replicasets", "statefulsets", "daemonsets", "pods", "services", "ingresses", "networkpolicies", "horizontalpodautoscalers"}
-	// app.Spec.PreserveNodePorts = true
+	app.Spec.PreserveNodePorts = true
 	// app.Spec.RestorePVs = true
 	app.Spec.ItemOperationTimeout = itemOperationTimeout
 
