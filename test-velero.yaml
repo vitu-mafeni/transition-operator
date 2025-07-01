@@ -1,0 +1,11 @@
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: velero1-cluster1vt-wordpress-app
+  namespace: velero
+spec:
+  backupName: cluster1vt-backup-every-5-min-20250701063534
+  preserveNodePorts: true
+  includedNamespaces:
+  - '*'
+  itemOperationTimeout: 4h0m0s

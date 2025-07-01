@@ -88,10 +88,10 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.Get(ctx, req.NamespacedName, clusterPolicy); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Error(err, "ClusterPolicy resource not found.")
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 		}
 		log.Error(err, "Failed to get ClusterPolicy resource")
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, err
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 
 	}
 
@@ -116,7 +116,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Example: log the number of clusters
 	// logf.FromContext(ctx).Info("Number of clusters", "count", numClusters)
 
-	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }
 
 func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, cluster *capiv1beta1.Cluster, req ctrl.Request) {

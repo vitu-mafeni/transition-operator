@@ -10,8 +10,8 @@ CLUSTER_A_IP=""
 CLUSTER_B_IP=""
 MYSQL_NODEPORT=""
 
-KUBECONFIG_A="./edge.kubeconfig"
-KUBECONFIG_B="./core.kubeconfig"
+KUBECONFIG_A="../../cluster1vt.kubeconfig"
+KUBECONFIG_B="../../cluster2vt.kubeconfig"
 TIMEOUT=1
 OVERALL_TIMEOUT=600
 

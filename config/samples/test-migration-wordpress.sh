@@ -7,10 +7,10 @@ APP_LABEL="wordpress"
 NODEPORT=31269
 SERVICE_PATH="/"
 
-CLUSTER_A_IP="192.168.28.220"
-CLUSTER_B_IP="192.168.28.169"
-KUBECONFIG_A="./edge.kubeconfig"
-KUBECONFIG_B="./core.kubeconfig"
+CLUSTER_A_IP="192.168.28.250"
+CLUSTER_B_IP="192.168.28.131"
+KUBECONFIG_A="../../cluster1vt.kubeconfig"
+KUBECONFIG_B="../../cluster2vt.kubeconfig"
 TIMEOUT=1
 
 # ----------- LOG SETUP ------------

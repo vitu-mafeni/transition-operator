@@ -71,7 +71,7 @@ func CreateAndPushArgoApp(
 	app.Spec.Destination.Server = "https://kubernetes.default.svc"
 	app.Spec.Destination.Namespace = "default"
 
-	app.Spec.SyncPolicy.Automated.Prune = true
+	// app.Spec.SyncPolicy.Automated.Prune = true
 	app.Spec.SyncPolicy.Automated.SelfHeal = true
 	app.Spec.SyncPolicy.Automated.AllowEmpty = true
 	app.Spec.SyncPolicy.SyncOptions = []string{"CreateNamespace=true"}

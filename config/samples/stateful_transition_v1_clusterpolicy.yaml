@@ -5,27 +5,27 @@ metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
-    name: edge
-    repo: http://192.168.28.151:31159/nephio/edge.git
+    name: cluster1vt
+    repo: http://192.168.28.105:32717/nephio/cluster1vt.git # repo where the cluster workloads is defined
     repoType: git
   selectMode: Specific # Specific, All
   transitionMode: Manual # Automatic, Manual
   packageSelectors:
-    - name: wordpress
+    - name: wordpress-app # Package Name
       packagePath: wordpress-app # where the package is in the repo
       packageType: Stateful # Stateless, Stateful
       selected: true
       backupInformation:
-        - name: edge-backup # Backup Name
+        - name: cluster1vt-backup # Backup Name
           backupType: Manual # Manual, Schedule
-        - name: edge-wp-backup-every-5-min # Schedule Name
+        - name: cluster1vt-backup-every-5-min # Schedule Name
           backupType: Schedule # Manual, Schedule
   packageRetentionPolicy:
     retainOnSource: false
     deleteAfterTransition: true
   targetClusterPolicy:
     preferClusters:
-      - name: core
+      - name: cluster2vt
         # repo: http://192.168.28.187:31969/nephio/core.git ## i think this might not be needed because we dont push the transitionresource to this repo
         repoType: git
         weight: 100
