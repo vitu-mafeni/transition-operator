@@ -75,6 +75,7 @@ type ClusterSelector struct {
 	Name     string `json:"name"`
 	Repo     string `json:"repo"`
 	RepoType string `json:"repoType"` // e.g., git, helm
+	Provider string `json:"provider,omitempty"` // e.g., aws, azure, gcp, kt
 }
 
 // PackageSelector defines individual package selection criteria

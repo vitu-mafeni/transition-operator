@@ -1,0 +1,23 @@
+[2025-07-01 05:34:50] 
+[2025-07-01 05:34:50] === NEW MIGRATION MONITORING CYCLE STARTED ===
+[2025-07-01 05:34:50] Tracking deployment: edge-wordpress in namespace: wordpress
+[2025-07-01 05:34:50] [A] Pod is Running (cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx) at Tue Jul  1 05:34:50 AM UTC 2025
+[2025-07-01 05:34:50] [A] --- POD STATUS SNAPSHOT during Running ---
+NAME                                                  READY   STATUS    RESTARTS   AGE   IP           NODE                          NOMINATED NODE   READINESS GATES
+cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx   1/1     Running   0          53m   10.0.1.154   cluster1vt-md-0-j5vh9-cg48v   <none>           <none>
+wordpress-mysql-8696f7566d-fwp4h                      1/1     Running   0          53m   10.0.1.124   cluster1vt-md-0-j5vh9-cg48v   <none>           <none>
+[2025-07-01 05:34:51] [A] Pod is Ready (cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx) at Tue Jul  1 05:34:50 AM UTC 2025
+[2025-07-01 05:34:51] [A] --- POD STATUS SNAPSHOT during Ready ---
+NAME                                                  READY   STATUS    RESTARTS   AGE   IP           NODE                          NOMINATED NODE   READINESS GATES
+cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx   1/1     Running   0          53m   10.0.1.154   cluster1vt-md-0-j5vh9-cg48v   <none>           <none>
+wordpress-mysql-8696f7566d-fwp4h                      1/1     Running   0          53m   10.0.1.124   cluster1vt-md-0-j5vh9-cg48v   <none>           <none>
+[2025-07-01 05:38:10] [B] Pod is Running (cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx) at Tue Jul  1 05:38:09 AM UTC 2025
+[2025-07-01 05:38:10] [B] --- POD STATUS SNAPSHOT during Running ---
+NAME                                                  READY   STATUS              RESTARTS   AGE    IP           NODE                          NOMINATED NODE   READINESS GATES
+cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx   1/1     Running             0          102s   10.0.0.140   cluster2vt-md-0-484p2-dzbkb   <none>           <none>
+wordpress-mysql-8696f7566d-6gl77                      0/1     ContainerCreating   0          102s   <none>       cluster2vt-md-0-484p2-dzbkb   <none>           <none>
+[2025-07-01 05:38:10] [B] Pod is Ready (cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx) at Tue Jul  1 05:38:09 AM UTC 2025
+[2025-07-01 05:38:10] [B] --- POD STATUS SNAPSHOT during Ready ---
+NAME                                                  READY   STATUS              RESTARTS   AGE    IP           NODE                          NOMINATED NODE   READINESS GATES
+cluster1vt-cluster1-edge-wordpress-559c4bb764-6kwbx   1/1     Running             0          102s   10.0.0.140   cluster2vt-md-0-484p2-dzbkb   <none>           <none>
+wordpress-mysql-8696f7566d-6gl77                      0/1     ContainerCreating   0          102s   <none>       cluster2vt-md-0-484p2-dzbkb   <none>           <none>

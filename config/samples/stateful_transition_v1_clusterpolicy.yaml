@@ -5,8 +5,8 @@ metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
-    name: cluster1vt
-    repo: http://192.168.28.105:32717/nephio/cluster1vt.git # repo where the cluster workloads is defined
+    name: kt-cluster1
+    repo: http://13.214.38.114:30178/nephio/kt-cluster1.git # repo where the cluster workloads is defined
     repoType: git
   selectMode: Specific # Specific, All
   transitionMode: Manual # Automatic, Manual
@@ -18,14 +18,14 @@ spec:
       backupInformation:
         - name: cluster1vt-backup # Backup Name
           backupType: Manual # Manual, Schedule
-        - name: cluster1vt-backup-every-5-min # Schedule Name
+        - name: core-backup-every-5-min # Schedule Name
           backupType: Schedule # Manual, Schedule
   packageRetentionPolicy:
     retainOnSource: false
     deleteAfterTransition: true
   targetClusterPolicy:
     preferClusters:
-      - name: cluster2vt
+      - name: aws-cluster1-standby
         # repo: http://192.168.28.187:31969/nephio/core.git ## i think this might not be needed because we dont push the transitionresource to this repo
         repoType: git
         weight: 100

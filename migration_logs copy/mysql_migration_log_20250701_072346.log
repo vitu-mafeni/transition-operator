@@ -1,0 +1,445 @@
+[2025-07-01 07:23:46] Starting MySQL migration monitoring...
+[2025-07-01 07:23:46] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:23:46] [A] Deployment detected at Tue Jul  1 07:23:46 AM UTC 2025
+[2025-07-01 07:23:46] [A] Pod is Running at Tue Jul  1 07:23:46 AM UTC 2025
+[2025-07-01 07:23:46] [A] Pod is Ready at Tue Jul  1 07:23:46 AM UTC 2025
+[2025-07-01 07:29:13] [B] Deployment detected at Tue Jul  1 07:29:13 AM UTC 2025
+[2025-07-01 07:29:33] [B] Pod is Running at Tue Jul  1 07:29:33 AM UTC 2025
+[2025-07-01 07:29:33] [B] Pod is Ready at Tue Jul  1 07:29:33 AM UTC 2025
+[2025-07-01 07:29:34] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:34] [A] Deploy: Tue Jul  1 07:23:46 AM UTC 2025
+[2025-07-01 07:29:34] [A] Running: Tue Jul  1 07:23:46 AM UTC 2025
+[2025-07-01 07:29:34] [A] Ready: Tue Jul  1 07:23:46 AM UTC 2025
+[2025-07-01 07:29:34] [B] Deploy: Tue Jul  1 07:29:13 AM UTC 2025
+[2025-07-01 07:29:34] [B] Running: Tue Jul  1 07:29:33 AM UTC 2025
+[2025-07-01 07:29:34] [B] Ready: Tue Jul  1 07:29:33 AM UTC 2025
+[2025-07-01 07:29:34] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[A] Running -> Ready                    : 0s
+[A] Ready -> B Deploy                   : 327s
+[B] Deploy -> Running                   : 20s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:34] [Total] Estimated backend readiness downtime: 347 seconds
+[2025-07-01 07:29:34] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:34] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:34] ----------------------------------------
+[2025-07-01 07:29:35] Starting MySQL migration monitoring...
+[2025-07-01 07:29:35] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:35] [A] Deployment detected at Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [A] Pod is Running at Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [B] Deployment detected at Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [B] Pod is Running at Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [B] Pod is Ready at Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:35] [A] Deploy: Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [A] Running: Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [B] Deploy: Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [B] Running: Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] [B] Ready: Tue Jul  1 07:29:35 AM UTC 2025
+[2025-07-01 07:29:35] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:35] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:35] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:35] ----------------------------------------
+[2025-07-01 07:29:36] Starting MySQL migration monitoring...
+[2025-07-01 07:29:36] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:36] [A] Deployment detected at Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:36] [A] Pod is Running at Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [B] Deployment detected at Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [B] Pod is Running at Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [B] Pod is Ready at Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:37] [A] Deploy: Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [A] Running: Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [B] Deploy: Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [B] Running: Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] [B] Ready: Tue Jul  1 07:29:36 AM UTC 2025
+[2025-07-01 07:29:37] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:37] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:37] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:37] ----------------------------------------
+[2025-07-01 07:29:38] Starting MySQL migration monitoring...
+[2025-07-01 07:29:38] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:38] [A] Deployment detected at Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:38] [A] Pod is Running at Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:38] [B] Deployment detected at Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:38] [B] Pod is Running at Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] [B] Pod is Ready at Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:39] [A] Deploy: Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] [A] Running: Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] [B] Deploy: Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] [B] Running: Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] [B] Ready: Tue Jul  1 07:29:38 AM UTC 2025
+[2025-07-01 07:29:39] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:39] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:39] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:39] ----------------------------------------
+[2025-07-01 07:29:40] Starting MySQL migration monitoring...
+[2025-07-01 07:29:40] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:40] [A] Deployment detected at Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [A] Pod is Running at Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [B] Deployment detected at Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [B] Pod is Running at Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [B] Pod is Ready at Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:40] [A] Deploy: Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [A] Running: Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [B] Deploy: Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [B] Running: Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] [B] Ready: Tue Jul  1 07:29:40 AM UTC 2025
+[2025-07-01 07:29:40] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:40] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:40] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:40] ----------------------------------------
+[2025-07-01 07:29:41] Starting MySQL migration monitoring...
+[2025-07-01 07:29:41] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:41] [A] Deployment detected at Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [A] Pod is Running at Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [B] Deployment detected at Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [B] Pod is Running at Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [B] Pod is Ready at Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:42] [A] Deploy: Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [A] Running: Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [B] Deploy: Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [B] Running: Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] [B] Ready: Tue Jul  1 07:29:41 AM UTC 2025
+[2025-07-01 07:29:42] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:42] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:42] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:42] ----------------------------------------
+[2025-07-01 07:29:43] Starting MySQL migration monitoring...
+[2025-07-01 07:29:43] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:43] [A] Deployment detected at Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:43] [A] Pod is Running at Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:43] [B] Deployment detected at Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:43] [B] Pod is Running at Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] [B] Pod is Ready at Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:44] [A] Deploy: Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] [A] Running: Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] [B] Deploy: Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] [B] Running: Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] [B] Ready: Tue Jul  1 07:29:43 AM UTC 2025
+[2025-07-01 07:29:44] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:44] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:44] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:44] ----------------------------------------
+[2025-07-01 07:29:45] Starting MySQL migration monitoring...
+[2025-07-01 07:29:45] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:45] [A] Deployment detected at Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [A] Pod is Running at Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [B] Deployment detected at Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [B] Pod is Running at Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [B] Pod is Ready at Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:45] [A] Deploy: Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [A] Running: Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [B] Deploy: Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [B] Running: Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] [B] Ready: Tue Jul  1 07:29:45 AM UTC 2025
+[2025-07-01 07:29:45] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:45] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:45] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:45] ----------------------------------------
+[2025-07-01 07:29:46] Starting MySQL migration monitoring...
+[2025-07-01 07:29:46] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:46] [A] Deployment detected at Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [A] Pod is Running at Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [B] Deployment detected at Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [B] Pod is Running at Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [B] Pod is Ready at Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:47] [A] Deploy: Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [A] Running: Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [B] Deploy: Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [B] Running: Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] [B] Ready: Tue Jul  1 07:29:46 AM UTC 2025
+[2025-07-01 07:29:47] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:47] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:47] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:47] ----------------------------------------
+[2025-07-01 07:29:48] Starting MySQL migration monitoring...
+[2025-07-01 07:29:48] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:48] [A] Deployment detected at Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:48] [A] Pod is Running at Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:48] [B] Deployment detected at Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] [B] Pod is Running at Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] [B] Pod is Ready at Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:49] [A] Deploy: Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] [A] Running: Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] [B] Deploy: Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] [B] Running: Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] [B] Ready: Tue Jul  1 07:29:48 AM UTC 2025
+[2025-07-01 07:29:49] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:49] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:49] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:49] ----------------------------------------
+[2025-07-01 07:29:50] Starting MySQL migration monitoring...
+[2025-07-01 07:29:50] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:50] [A] Deployment detected at Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [A] Pod is Running at Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [B] Deployment detected at Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [B] Pod is Running at Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [B] Pod is Ready at Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:50] [A] Deploy: Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [A] Running: Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [B] Deploy: Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [B] Running: Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] [B] Ready: Tue Jul  1 07:29:50 AM UTC 2025
+[2025-07-01 07:29:50] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:50] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:50] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:50] ----------------------------------------
+[2025-07-01 07:29:51] Starting MySQL migration monitoring...
+[2025-07-01 07:29:51] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:52] [A] Deployment detected at Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [A] Pod is Running at Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [B] Deployment detected at Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [B] Pod is Running at Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [B] Pod is Ready at Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:52] [A] Deploy: Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [A] Running: Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [B] Deploy: Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [B] Running: Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] [B] Ready: Tue Jul  1 07:29:51 AM UTC 2025
+[2025-07-01 07:29:52] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:52] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:52] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:52] ----------------------------------------
+[2025-07-01 07:29:53] Starting MySQL migration monitoring...
+[2025-07-01 07:29:53] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:53] [A] Deployment detected at Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:53] [A] Pod is Running at Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [B] Deployment detected at Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [B] Pod is Running at Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [B] Pod is Ready at Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:54] [A] Deploy: Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [A] Running: Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [B] Deploy: Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [B] Running: Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] [B] Ready: Tue Jul  1 07:29:53 AM UTC 2025
+[2025-07-01 07:29:54] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:54] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:54] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:54] ----------------------------------------
+[2025-07-01 07:29:55] Starting MySQL migration monitoring...
+[2025-07-01 07:29:55] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:55] [A] Deployment detected at Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [A] Pod is Running at Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [B] Deployment detected at Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [B] Pod is Running at Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [B] Pod is Ready at Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:55] [A] Deploy: Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [A] Running: Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [B] Deploy: Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [B] Running: Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] [B] Ready: Tue Jul  1 07:29:55 AM UTC 2025
+[2025-07-01 07:29:55] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:55] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:55] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:55] ----------------------------------------
+[2025-07-01 07:29:56] Starting MySQL migration monitoring...
+[2025-07-01 07:29:56] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:57] [A] Deployment detected at Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [A] Pod is Running at Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [B] Deployment detected at Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [B] Pod is Running at Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [B] Pod is Ready at Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:57] [A] Deploy: Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [A] Running: Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [B] Deploy: Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [B] Running: Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] [B] Ready: Tue Jul  1 07:29:56 AM UTC 2025
+[2025-07-01 07:29:57] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:57] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:57] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:57] ----------------------------------------
+[2025-07-01 07:29:58] Starting MySQL migration monitoring...
+[2025-07-01 07:29:58] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:29:58] [A] Deployment detected at Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:58] [A] Pod is Running at Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [B] Deployment detected at Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [B] Pod is Running at Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [B] Pod is Ready at Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:29:59] [A] Deploy: Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [A] Running: Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [B] Deploy: Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [B] Running: Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] [B] Ready: Tue Jul  1 07:29:58 AM UTC 2025
+[2025-07-01 07:29:59] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:29:59] MySQL migration monitoring cycle completed.
+[2025-07-01 07:29:59] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:29:59] ----------------------------------------
+[2025-07-01 07:30:00] Starting MySQL migration monitoring...
+[2025-07-01 07:30:00] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:30:00] [A] Deployment detected at Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:00] [A] Pod is Running at Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:00] [B] Deployment detected at Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:00] [B] Pod is Running at Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:00] [B] Pod is Ready at Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:00] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:30:00] [A] Deploy: Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:01] [A] Running: Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:01] [B] Deploy: Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:01] [B] Running: Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:01] [B] Ready: Tue Jul  1 07:30:00 AM UTC 2025
+[2025-07-01 07:30:01] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:30:01] MySQL migration monitoring cycle completed.
+[2025-07-01 07:30:01] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:30:01] ----------------------------------------
+[2025-07-01 07:30:02] Starting MySQL migration monitoring...
+[2025-07-01 07:30:02] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:30:02] [A] Deployment detected at Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [A] Pod is Running at Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [B] Deployment detected at Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [B] Pod is Running at Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [B] Pod is Ready at Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:30:02] [A] Deploy: Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [A] Running: Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [B] Deploy: Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [B] Running: Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] [B] Ready: Tue Jul  1 07:30:02 AM UTC 2025
+[2025-07-01 07:30:02] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:30:02] MySQL migration monitoring cycle completed.
+[2025-07-01 07:30:02] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:30:02] ----------------------------------------
+[2025-07-01 07:30:03] Starting MySQL migration monitoring...
+[2025-07-01 07:30:03] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:30:03] [A] Deployment detected at Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:03] [A] Pod is Running at Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [B] Deployment detected at Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [B] Pod is Running at Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [B] Pod is Ready at Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:30:04] [A] Deploy: Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [A] Running: Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [B] Deploy: Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [B] Running: Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] [B] Ready: Tue Jul  1 07:30:03 AM UTC 2025
+[2025-07-01 07:30:04] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:30:04] MySQL migration monitoring cycle completed.
+[2025-07-01 07:30:04] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:30:04] ----------------------------------------
+[2025-07-01 07:30:05] Starting MySQL migration monitoring...
+[2025-07-01 07:30:05] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:30:05] [A] Deployment detected at Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:05] [A] Pod is Running at Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:05] [B] Deployment detected at Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:05] [B] Pod is Running at Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] [B] Pod is Ready at Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:30:06] [A] Deploy: Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] [A] Running: Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] [B] Deploy: Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] [B] Running: Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] [B] Ready: Tue Jul  1 07:30:05 AM UTC 2025
+[2025-07-01 07:30:06] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:30:06] MySQL migration monitoring cycle completed.
+[2025-07-01 07:30:06] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:30:06] ----------------------------------------
+[2025-07-01 07:30:07] Starting MySQL migration monitoring...
+[2025-07-01 07:30:07] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:30:07] [A] Deployment detected at Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [A] Pod is Running at Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [B] Deployment detected at Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [B] Pod is Running at Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [B] Pod is Ready at Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:30:07] [A] Deploy: Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [A] Running: Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [B] Deploy: Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [B] Running: Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] [B] Ready: Tue Jul  1 07:30:07 AM UTC 2025
+[2025-07-01 07:30:07] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:30:07] MySQL migration monitoring cycle completed.
+[2025-07-01 07:30:07] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:30:07] ----------------------------------------
+[2025-07-01 07:30:08] Starting MySQL migration monitoring...
+[2025-07-01 07:30:08] Tracking deployment: wordpress-mysql in namespace: wordpress
+[2025-07-01 07:30:08] [A] Deployment detected at Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:08] [A] Pod is Running at Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [B] Deployment detected at Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [B] Pod is Running at Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [B] Pod is Ready at Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] --------- MYSQL MIGRATION SUMMARY ---------
+[2025-07-01 07:30:09] [A] Deploy: Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [A] Running: Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [B] Deploy: Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [B] Running: Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] [B] Ready: Tue Jul  1 07:30:08 AM UTC 2025
+[2025-07-01 07:30:09] --------- TIME GAPS BETWEEN EVENTS ---------
+[A] Deploy -> Running                   : 0s
+[B] Deploy -> Running                   : 0s
+[B] Running -> Ready                    : 0s
+[2025-07-01 07:30:09] MySQL migration monitoring cycle completed.
+[2025-07-01 07:30:09] Waiting 1 second before restarting monitoring...
+[2025-07-01 07:30:09] ----------------------------------------
