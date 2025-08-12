@@ -251,12 +251,24 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 		return
 	}
 
+	// or search by machine address especially on AWS if machine.Name is not there
+
 	node := &corev1.Node{}
-	if err := clusterClient.Get(ctx, types.NamespacedName{Name: machine.Name}, node); err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Error(err, "Node not found", "node", machine.Name)
-			node = nil // Explicitly set node to nil if not found
-		} else {
+	err = clusterClient.Get(ctx, types.NamespacedName{Name: machine.Name}, node)
+	if err != nil {
+		if apierrors.IsNotFound(err) && len(machine.Status.Addresses) > 0 {
+			// Try to find by address if not found by name
+			err = clusterClient.Get(ctx, types.NamespacedName{Name: machine.Status.Addresses[0].Address}, node)
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					log.Error(err, "Node not found by name or address", "node", machine.Name, "address", machine.Status.Addresses[0].Address)
+					node = nil // Explicitly set node to nil if not found
+				} else {
+					log.Error(err, "Failed to get node by address", "address", machine.Status.Addresses[0].Address)
+					return
+				}
+			}
+		} else if err != nil {
 			log.Error(err, "Failed to get node", "node", machine.Name)
 			return
 		}

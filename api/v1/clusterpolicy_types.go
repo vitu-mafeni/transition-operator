@@ -74,7 +74,7 @@ type ClusterPolicySpec struct {
 type ClusterSelector struct {
 	Name     string `json:"name"`
 	Repo     string `json:"repo"`
-	RepoType string `json:"repoType"` // e.g., git, helm
+	RepoType string `json:"repoType"`           // e.g., git, helm
 	Provider string `json:"provider,omitempty"` // e.g., aws, azure, gcp, kt
 }
 

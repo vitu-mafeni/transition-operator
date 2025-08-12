@@ -5,13 +5,13 @@ metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
-    name: kt-cluster1
-    repo: http://13.214.38.114:30178/nephio/kt-cluster1.git # repo where the cluster workloads is defined
+    name: cluster1-aws
+    repo: http://52.221.209.248:31911/nephio/cluster1-aws.git # repo where the cluster workloads is defined
     repoType: git
   selectMode: Specific # Specific, All
   transitionMode: Manual # Automatic, Manual
   packageSelectors:
-    - name: wordpress-app # Package Name
+    - name: wordpress # Package Name
       packagePath: wordpress-app # where the package is in the repo
       packageType: Stateful # Stateless, Stateful
       selected: true
@@ -25,7 +25,7 @@ spec:
     deleteAfterTransition: true
   targetClusterPolicy:
     preferClusters:
-      - name: aws-cluster1-standby
+      - name: cluster2-azure
         # repo: http://192.168.28.187:31969/nephio/core.git ## i think this might not be needed because we dont push the transitionresource to this repo
         repoType: git
         weight: 100
