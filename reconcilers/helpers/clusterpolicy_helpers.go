@@ -222,6 +222,7 @@ func CreateAndPushVeleroRestore(
 	transitionPackage transitionv1.PackageSelector,
 	log logr.Logger,
 	backupInfo transitionv1.BackupInformation,
+	TargetClusterk8sClient client.Client, appName string,
 ) (string, error) {
 
 	// excludedResources := []string{"events.k8s.io", "nodes"}
@@ -270,10 +271,19 @@ func CreateAndPushVeleroRestore(
 	}
 
 	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
+
+	err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName+"-dr", "argocd")
+	if err != nil {
+		log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+		message += "; but the ArgoCD sync was not triggered successfully"
+	}
+
+	//delay 5s and push argocd app to avoid overriding the configs from velero
+	time.Sleep(5 * time.Second)
 	// we have to push argo app to the same folder
 	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
 	if err != nil {
-		return "", fmt.Errorf("Stateful workload final restore file - Failed to create argocd application restore file in Gitea: %w", err)
+		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
 	return filename, nil
 }

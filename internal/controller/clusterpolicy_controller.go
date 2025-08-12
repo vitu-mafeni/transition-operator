@@ -502,7 +502,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			return
 		}
 
-		_, err := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching)
+		_, err := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, targetClusterClient, targetClusterName+"-dr")
 		if err != nil {
 			log.Error(err, "Failed to push Velero manifest")
 			//add status that it failed to transition the package
