@@ -6,7 +6,7 @@ metadata:
 spec:
   clusterSelector:
     name: cluster1-aws
-    repo: http://52.221.209.248:31911/nephio/cluster1-aws.git # repo where the cluster workloads is defined
+    repo: http://13.214.181.179:30343/nephio/cluster1-aws.git # repo where the cluster workloads is defined
     repoType: git
   selectMode: Specific # Specific, All
   transitionMode: Manual # Automatic, Manual

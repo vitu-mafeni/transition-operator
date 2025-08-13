@@ -17,6 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 )
 
 func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
@@ -272,14 +274,24 @@ func CreateAndPushVeleroRestore(
 
 	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
 
-	err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName+"-dr", "argocd")
+	err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName, "argocd")
 	if err != nil {
 		log.Error(err, "Failed to trigger ArgoCD sync with kube client")
 		message += "; but the ArgoCD sync was not triggered successfully"
 	}
 
+	log.Info("DELAYING FOR 5 SECONDS", "repo", repoName, "file", filename)
+
 	//delay 5s and push argocd app to avoid overriding the configs from velero
-	time.Sleep(5 * time.Second)
+	// time.Sleep(5 * time.Second)
+
+	// Wait for restore completion instead of fixed delay
+	if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
+		return "", err
+	}
+
+	log.Info("Velero restore completed successfully, time to push argo app", "argoapp", repoName)
+
 	// we have to push argo app to the same folder
 	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
 	if err != nil {
@@ -371,4 +383,37 @@ func TriggerArgoCDSync(k8sClient client.Client, appName, namespace string) error
 
 	patch := client.RawPatch(types.MergePatchType, modifiedJSON)
 	return k8sClient.Patch(ctx, modified, patch)
+}
+
+// check and wait for velero resources to indicate restore complete
+// Waits for Velero restore CR to be Completed or Failed
+func waitForVeleroRestoreCompletion(k8sClient client.Client, restoreName, namespace string, timeout time.Duration, log logr.Logger) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for Velero restore %s to complete", restoreName)
+		case <-ticker.C:
+			var restore velerov1.Restore
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: restoreName, Namespace: namespace}, &restore); err != nil {
+				return fmt.Errorf("failed to get Velero restore %s: %w", restoreName, err)
+			}
+
+			phase := restore.Status.Phase
+			log.Info("Velero restore status check", "restore", restoreName, "phase", phase)
+
+			switch phase {
+			case velerov1.RestorePhaseCompleted:
+				log.Info("Velero restore completed successfully", "restore", restoreName)
+				return nil
+			case velerov1.RestorePhaseFailed:
+				return fmt.Errorf("velero restore %s failed", restoreName)
+			}
+		}
+	}
 }
