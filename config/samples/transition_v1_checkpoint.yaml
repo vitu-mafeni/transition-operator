@@ -7,3 +7,25 @@ metadata:
   name: checkpoint-sample
 spec:
   # TODO(user): Add fields here
+    schedule: "0/15 * * * *" # Every 15 minutes
+  # Select Pod to checkpoint
+  podRef:
+    namespace: default
+    name: pod-1
+  # The Workload to migrate
+  resourceRef:
+    apiVersion: apps/v1
+    kind: StatefulSet # Can be Pod, Deployment, or StatefulSet...
+    namespace: default
+    name: my-app
+  # Registry setup
+  registry:
+    url: registry.mydomain.com
+    repository: vitu1/checkpoints
+    secretRef:
+      name: reg-credentials
+  containers:
+		- name: app-container
+			image: registry.mydomain.com/lehuannhatrang/checkpoints:app-container
+		- name: sidecar-container
+			image: registry.mydomain.com/lehuannhatrang/checkpoints:sidecar-container

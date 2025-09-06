@@ -5,6 +5,24 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/checkpoints
+  verbs:
+  - create
+  - patch
+  - proxy
+  - update
+- apiGroups:
   - transition.dcnlab.ssu.ac.kr
   resources:
   - checkpoints

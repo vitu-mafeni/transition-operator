@@ -105,9 +105,61 @@ type RegistryClient struct {
 func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	log := logf.FromContext(ctx)
 
-	return ctrl.Result{}, nil
+	// Fetch the Checkpoint instance
+	var Checkpoint transitionv1.Checkpoint
+	if err := r.Get(ctx, req.NamespacedName, &Checkpoint); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info("Checkpoint resource not found. Ignoring since object must be deleted")
+			// Clean up any scheduled job
+			if r.scheduledJobs != nil {
+				if entryID, exists := r.scheduledJobs[req.NamespacedName.String()]; exists {
+					r.Scheduler.Remove(entryID)
+					delete(r.scheduledJobs, req.NamespacedName.String())
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get Checkpoint")
+		return ctrl.Result{}, err
+	}
+
+	// Initialize clients if not already done
+	if err := r.initializeClients(ctx, &Checkpoint); err != nil {
+		log.Error(err, "Failed to initialize clients")
+		return ctrl.Result{}, err
+	}
+
+	// Add finalizer if not present
+	if !controllerutil.ContainsFinalizer(&Checkpoint, CheckpointFinalizer) {
+		controllerutil.AddFinalizer(&Checkpoint, CheckpointFinalizer)
+		if err := r.Update(ctx, &Checkpoint); err != nil {
+			log.Error(err, "Failed to add finalizer")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// Handle deletion
+	if Checkpoint.GetDeletionTimestamp() != nil {
+		return r.reconcileDelete(ctx, &Checkpoint)
+	}
+
+	// Check if the pod is on this node
+	isOnThisNode, err := r.isPodOnThisNode(ctx, &Checkpoint)
+	if err != nil {
+		log.Error(err, "Failed to check if pod is on this node")
+		return ctrl.Result{}, err
+	}
+
+	if !isOnThisNode {
+		log.Info("Pod is not on this node, skipping", "pod", Checkpoint.Spec.PodRef.Name, "node", r.NodeName)
+		return ctrl.Result{}, nil
+	}
+
+	// Handle normal reconciliation
+	return r.reconcileNormal(ctx, &Checkpoint)
+
 }
 
 // initializeClients initializes the kubelet and registry clients
