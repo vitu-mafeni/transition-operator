@@ -84,6 +84,7 @@ type PackageSelector struct {
 	PackagePath       string              `json:"packagePath"`
 	PackageType       PackageType         `json:"packageType"` // e.g., stateful, stateless
 	Selected          bool                `json:"selected"`
+	LivePackage       bool                `json:"livePackage,omitempty"`
 	BackupInformation []BackupInformation `json:"backupInformation"`
 }
 

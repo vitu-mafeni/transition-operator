@@ -2,4 +2,5 @@
 resources:
 - transition_v1_packagepolicy.yaml
 - transition_v1_clusterpolicy.yaml
+- transition_v1_checkpoint.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
