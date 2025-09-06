@@ -110,6 +110,8 @@ type CheckpointSpec struct {
 	// +required
 	Schedule string `json:"schedule"`
 
+	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
+
 	// PodRef specifies the pod to checkpoint
 	// +required
 	PodRef PodRef `json:"podRef"`
@@ -125,6 +127,11 @@ type CheckpointSpec struct {
 	// Containers specifies the container configurations for checkpoints
 	// +optional
 	Containers []Container `json:"containers,omitempty"`
+}
+type ClusterRef struct {
+	// Name of the referenced cluster
+	// +required
+	Name string `json:"name"`
 }
 
 // CheckpointStatus defines the observed state of Checkpoint.

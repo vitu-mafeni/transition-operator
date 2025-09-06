@@ -29,11 +29,14 @@ import (
 	"strings"
 	"time"
 
+	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
+	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -41,12 +44,19 @@ import (
 
 	"github.com/robfig/cron/v3"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
+	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 )
 
 const (
-	CheckpointFinalizer = "Checkpoint.migration.dcnlab.com/finalizer"
+	CheckpointFinalizer = "checkpoint.transition.dcnlab.ssu.ac.kr/finalizer"
 	CheckpointBasePath  = "/var/lib/kubelet/checkpoints"
 	ServiceAccountPath  = "/var/run/secrets/kubernetes.io/serviceaccount"
+)
+
+const (
+	KubernetesHost         = "https://kubernetes.default.svc"
+	checkpoint_saName      = "checkpoint-sa"
+	checkpoint_saNamespace = "default"
 )
 
 // CheckpointResponse represents the response from kubelet checkpoint API
@@ -71,6 +81,8 @@ type KubeletClient struct {
 	httpClient *http.Client
 	token      string
 	kubeletURL string
+	baseURL    string
+	nodeName   string
 }
 
 // RegistryClient handles container registry operations
@@ -125,12 +137,6 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	// Initialize clients if not already done
-	if err := r.initializeClients(ctx, &Checkpoint); err != nil {
-		log.Error(err, "Failed to initialize clients")
-		return ctrl.Result{}, err
-	}
-
 	// Add finalizer if not present
 	if !controllerutil.ContainsFinalizer(&Checkpoint, CheckpointFinalizer) {
 		controllerutil.AddFinalizer(&Checkpoint, CheckpointFinalizer)
@@ -145,27 +151,160 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return r.reconcileDelete(ctx, &Checkpoint)
 	}
 
-	// Check if the pod is on this node
-	isOnThisNode, err := r.isPodOnThisNode(ctx, &Checkpoint)
+	// Get workload cluster client
+	_, workloadClient, err := r.getWorkloadClient(ctx, Checkpoint)
 	if err != nil {
-		log.Error(err, "Failed to check if pod is on this node")
+		log.Error(err, "Failed to get workload cluster client")
 		return ctrl.Result{}, err
 	}
 
-	if !isOnThisNode {
-		log.Info("Pod is not on this node, skipping", "pod", Checkpoint.Spec.PodRef.Name, "node", r.NodeName)
-		return ctrl.Result{}, nil
+	// Get all nodes in workload cluster
+	var nodeList corev1.NodeList
+	if err := workloadClient.List(ctx, &nodeList); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to list nodes in workload cluster: %w", err)
 	}
 
+	// Get the Pod
+	var pod corev1.Pod
+	if err := workloadClient.Get(ctx, types.NamespacedName{
+		Name:      Checkpoint.Spec.PodRef.Name,
+		Namespace: Checkpoint.Spec.PodRef.Namespace,
+	}, &pod); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get pod %s/%s: %w", Checkpoint.Spec.PodRef.Namespace, Checkpoint.Spec.PodRef.Name, err)
+	}
+
+	nodeKubeletURL := ""
+	nodeKubeletIP := ""
+
+	// Find the node that pod is scheduled on
+	for _, node := range nodeList.Items {
+		if pod.Spec.NodeName == node.Name {
+			for _, addr := range node.Status.Addresses {
+				if addr.Type == corev1.NodeInternalIP {
+					nodeKubeletIP := addr.Address
+					nodeKubeletURL = fmt.Sprintf("https://%s:10250", nodeKubeletIP)
+					NewKubeletClient(ctx, nodeKubeletIP, workloadClient)
+				}
+			}
+		}
+	}
+
+	// Initialize clients if not already done
+	if err := r.initializeClients(ctx, &Checkpoint, nodeKubeletIP, workloadClient); err != nil {
+		log.Error(err, "Failed to initialize clients")
+		return ctrl.Result{}, err
+	}
+
+	// // Check if the pod is on this node
+	// isOnThisNode, err := r.isPodOnThisNode(ctx, &Checkpoint)
+	// if err != nil {
+	// 	log.Error(err, "Failed to check if pod is on this node")
+	// 	return ctrl.Result{}, err
+	// }
+
+	// if !isOnThisNode {
+	// 	log.Info("Pod is not on this node, skipping", "pod", Checkpoint.Spec.PodRef.Name, "node", r.NodeName)
+	// 	return ctrl.Result{}, nil
+	// }
+
 	// Handle normal reconciliation
-	return r.reconcileNormal(ctx, &Checkpoint)
+	return r.reconcileNormal(ctx, &Checkpoint, nodeKubeletURL)
 
 }
 
+// getWorkloadClient is a helper function to get the workload cluster client
+func (r *CheckpointReconciler) getWorkloadClient(ctx context.Context, checkpoint transitionv1.Checkpoint) (ctrl.Result, client.Client, error) {
+	log := logf.FromContext(ctx)
+	clusterList := &capiv1beta1.ClusterList{}
+	if err := r.Client.List(ctx, clusterList); err != nil {
+		return ctrl.Result{}, nil, err
+	}
+
+	var capiCluster *capictrl.Capi
+	//get the clusters
+	for _, workload_cluster := range clusterList.Items {
+		if checkpoint.Spec.ClusterRef.Name == workload_cluster.Name {
+			var err error
+			capiCluster, err = capictrl.GetCapiClusterFromName(ctx, checkpoint.Spec.ClusterRef.Name, "default", r.Client)
+			if err != nil {
+				log.Error(err, "Failed to get CAPI cluster")
+				return ctrl.Result{}, nil, err
+			}
+			break
+		}
+	}
+
+	if capiCluster == nil {
+		return ctrl.Result{}, nil, fmt.Errorf("no matching cluster found for %s", checkpoint.Spec.ClusterRef.Name)
+	}
+
+	//print the cluster data
+	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
+
+	clusterClient, _, err := capiCluster.GetClusterClient(ctx)
+	//initialize the cluster client
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
+		return ctrl.Result{}, nil, err
+	}
+
+	return ctrl.Result{}, clusterClient, nil
+
+}
+
+// get kubelet token
+func getKubeletToken(ctx context.Context, workloadClient client.Client) (string, error) {
+	// // 1. Get the ServiceAccount from the workload cluster
+
+	// sa := &corev1.ServiceAccount{}
+	// if err := workloadClient.Get(ctx, types.NamespacedName{
+	// 	Name:      checkpoint_saName,
+	// 	Namespace: checkpoint_saNamespace,
+	// }, sa); err != nil {
+	// 	return "", fmt.Errorf("failed to get service account: %w", err)
+	// }
+	// if len(sa.Secrets) == 0 {
+	// 	return "", fmt.Errorf("service account %s has no secrets", checkpoint_saName)
+	// }
+	// // 2. Get the referenced Secret (token)
+	// secret := &corev1.Secret{}
+	// if err := workloadClient.Get(ctx, types.NamespacedName{
+	// 	Name:      sa.Secrets[0].Name,
+	// 	Namespace: checkpoint_saNamespace,
+	// }, secret); err != nil {
+	// 	return "", fmt.Errorf("failed to get service account secret: %w", err)
+	// }
+	// tokenBytes, ok := secret.Data["token"]
+	// if !ok {
+	// 	return "", fmt.Errorf("service account secret does not contain a token")
+	// }
+	// return string(tokenBytes), nil
+	// Read the token from the mounted service account file
+	sa := &corev1.ServiceAccount{}
+	if err := workloadClient.Get(ctx, types.NamespacedName{
+		Name:      checkpoint_saName,
+		Namespace: checkpoint_saNamespace,
+	}, sa); err != nil {
+		return "", fmt.Errorf("failed to get service account: %w", err)
+	}
+
+	tr := &authenticationv1.TokenRequest{
+		Spec: authenticationv1.TokenRequestSpec{
+			Audiences:         []string{"https://kubernetes.default.svc"},
+			ExpirationSeconds: pointer.Int64(3600),
+		},
+	}
+	if err := workloadClient.SubResource("token").Create(ctx, sa, tr); err != nil {
+		return "", fmt.Errorf("failed to request token: %w", err)
+	}
+	token := tr.Status.Token
+	return token, nil
+}
+
 // initializeClients initializes the kubelet and registry clients
-func (r *CheckpointReconciler) initializeClients(ctx context.Context, backup *transitionv1.Checkpoint) error {
+func (r *CheckpointReconciler) initializeClients(ctx context.Context, backup *transitionv1.Checkpoint, nodeKubeletIP string, workloadClient client.Client) error {
 	if r.KubeletClient == nil {
-		kubeletClient, err := NewKubeletClient()
+		kubeletClient, err := NewKubeletClient(ctx, nodeKubeletIP, workloadClient)
 		if err != nil {
 			return fmt.Errorf("failed to create kubelet client: %w", err)
 		}
@@ -190,20 +329,46 @@ func (r *CheckpointReconciler) initializeClients(ctx context.Context, backup *tr
 }
 
 // NewKubeletClient creates a new kubelet client
-func NewKubeletClient() (*KubeletClient, error) {
-	// Read service account token
-	tokenBytes, err := os.ReadFile(filepath.Join(ServiceAccountPath, "token"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read service account token: %w", err)
+func NewKubeletClient(ctx context.Context, nodeIP string, workloadClient client.Client) (*KubeletClient, error) {
+	// 1. Get the ServiceAccount from the workload cluster
+	sa := &corev1.ServiceAccount{}
+	if err := workloadClient.Get(ctx, types.NamespacedName{
+		Name:      checkpoint_saName,
+		Namespace: checkpoint_saNamespace,
+	}, sa); err != nil {
+		return nil, fmt.Errorf("failed to get service account: %w", err)
 	}
 
-	// Get node IP from environment or use localhost
+	if len(sa.Secrets) == 0 {
+		return nil, fmt.Errorf("service account %s has no secrets", checkpoint_saName)
+	}
+
+	// 2. Get the referenced Secret (token)
+	// secret := &corev1.Secret{}
+	// if err := workloadClient.Get(ctx, types.NamespacedName{
+	// 	Name:      sa.Secrets[0].Name,
+	// 	Namespace: checkpoint_saNamespace,
+	// }, secret); err != nil {
+	// 	return nil, fmt.Errorf("failed to get service account secret: %w", err)
+	// }
+
+	// tokenBytes, ok := secret.Data["token"]
+	// if !ok {
+	// 	return nil, fmt.Errorf("service account secret does not contain a token")
+	// }
+
+	tokenBytes, err := getKubeletToken(ctx, workloadClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get kubelet token: %w", err)
+	}
+
+	// 3. Build kubelet URL
 	kubeletURL := "https://localhost:10250"
-	if nodeIP := os.Getenv("NODE_IP"); nodeIP != "" {
+	if nodeIP != "" {
 		kubeletURL = fmt.Sprintf("https://%s:10250", nodeIP)
 	}
 
-	// Create HTTP client with TLS config (skip verification for kubelet)
+	// 4. Create HTTP client
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -281,7 +446,7 @@ func (r *CheckpointReconciler) isPodOnThisNode(ctx context.Context, backup *tran
 }
 
 // reconcileNormal handles the normal reconciliation logic
-func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *transitionv1.Checkpoint) (ctrl.Result, error) {
+func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *transitionv1.Checkpoint, kubeletURL string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// Schedule checkpoint creation based on the schedule
@@ -298,7 +463,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *tran
 
 	// Add new scheduled job
 	entryID, err := r.Scheduler.AddFunc(backup.Spec.Schedule, func() {
-		if err := r.performCheckpoint(context.Background(), backup); err != nil {
+		if err := r.performCheckpoint(context.Background(), backup, kubeletURL); err != nil {
 			log.Error(err, "Failed to perform checkpoint", "backup", backup.Name)
 		}
 	})
@@ -312,7 +477,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *tran
 
 	// Also perform immediate checkpoint on first reconcile
 	if backup.Status.LastCheckpointTime == nil {
-		if err := r.performCheckpoint(ctx, backup); err != nil {
+		if err := r.performCheckpoint(ctx, backup, kubeletURL); err != nil {
 			log.Error(err, "Failed to perform initial checkpoint")
 			return ctrl.Result{}, err
 		}
@@ -348,7 +513,7 @@ func (r *CheckpointReconciler) reconcileDelete(ctx context.Context, backup *tran
 }
 
 // performCheckpoint performs the actual checkpoint operation
-func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, backup *transitionv1.Checkpoint) error {
+func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, backup *transitionv1.Checkpoint, kubeletURL string) error {
 	log := logf.FromContext(ctx)
 	log.Info("Starting checkpoint operation", "backup", backup.Name, "pod", backup.Spec.PodRef.Name)
 
@@ -368,7 +533,7 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, backup *tr
 
 	// Process each container
 	for _, container := range backup.Spec.Containers {
-		if err := r.checkpointContainer(ctx, backup, &pod, container); err != nil {
+		if err := r.checkpointContainer(ctx, backup, &pod, container, kubeletURL); err != nil {
 			log.Error(err, "Failed to checkpoint container", "container", container.Name)
 			return err
 		}
@@ -388,12 +553,12 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, backup *tr
 }
 
 // checkpointContainer performs checkpoint operation for a single container
-func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *transitionv1.Checkpoint, pod *corev1.Pod, container transitionv1.Container) error {
+func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *transitionv1.Checkpoint, pod *corev1.Pod, container transitionv1.Container, kubeletURL string) error {
 	log := logf.FromContext(ctx)
 	log.Info("Checkpointing container", "container", container.Name, "pod", pod.Name)
 
 	// Step 1: Call kubelet checkpoint API
-	checkpointPath, err := r.KubeletClient.CreateCheckpoint(backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name, container.Name)
+	checkpointPath, err := r.KubeletClient.CreateCheckpoint(backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name, container.Name, kubeletURL)
 	if err != nil {
 		return fmt.Errorf("failed to create checkpoint via kubelet API: %w", err)
 	}
@@ -440,8 +605,8 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 }
 
 // CreateCheckpoint calls kubelet checkpoint API
-func (kc *KubeletClient) CreateCheckpoint(namespace, podName, containerName string) (string, error) {
-	url := fmt.Sprintf("%s/checkpoint/%s/%s/%s?timeout=60", kc.kubeletURL, namespace, podName, containerName)
+func (kc *KubeletClient) CreateCheckpoint(namespace, podName, containerName, kubeletURL string) (string, error) {
+	url := fmt.Sprintf("%s/checkpoint/%s/%s/%s?timeout=60", kubeletURL, namespace, podName, containerName)
 
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {

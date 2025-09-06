@@ -39,6 +39,14 @@ spec:
           spec:
             description: spec defines the desired state of Checkpoint
             properties:
+              clusterRef:
+                properties:
+                  name:
+                    description: Name of the referenced cluster
+                    type: string
+                required:
+                - name
+                type: object
               containers:
                 description: Containers specifies the container configurations for
                   checkpoints
