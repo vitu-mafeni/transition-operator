@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/pointer"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -152,7 +153,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Get workload cluster client
-	_, workloadClient, err := r.getWorkloadClient(ctx, Checkpoint)
+	_, workloadClient, restConfig, err := r.getWorkloadClient(ctx, Checkpoint)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client")
 		return ctrl.Result{}, err
@@ -175,6 +176,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 	nodeKubeletURL := ""
 	nodeKubeletIP := ""
+	nodeName := pod.Spec.NodeName
 
 	// Find the node that pod is scheduled on
 	for _, node := range nodeList.Items {
@@ -208,48 +210,52 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// }
 
 	// Handle normal reconciliation
-	return r.reconcileNormal(ctx, workloadClient, &Checkpoint, nodeKubeletURL)
+	return r.reconcileNormal(ctx, workloadClient, &Checkpoint, nodeKubeletURL, nodeName, restConfig)
 
 }
 
 // getWorkloadClient is a helper function to get the workload cluster client
-func (r *CheckpointReconciler) getWorkloadClient(ctx context.Context, checkpoint transitionv1.Checkpoint) (ctrl.Result, client.Client, error) {
+func (r *CheckpointReconciler) getWorkloadClient(
+	ctx context.Context,
+	checkpoint transitionv1.Checkpoint,
+) (ctrl.Result, client.Client, *rest.Config, error) {
 	log := logf.FromContext(ctx)
 	clusterList := &capiv1beta1.ClusterList{}
 	if err := r.Client.List(ctx, clusterList); err != nil {
-		return ctrl.Result{}, nil, err
+		return ctrl.Result{}, nil, nil, err
 	}
 
 	var capiCluster *capictrl.Capi
-	//get the clusters
 	for _, workload_cluster := range clusterList.Items {
 		if checkpoint.Spec.ClusterRef.Name == workload_cluster.Name {
 			var err error
-			capiCluster, err = capictrl.GetCapiClusterFromName(ctx, checkpoint.Spec.ClusterRef.Name, "default", r.Client)
+			capiCluster, err = capictrl.GetCapiClusterFromName(
+				ctx, checkpoint.Spec.ClusterRef.Name, "default", r.Client,
+			)
 			if err != nil {
 				log.Error(err, "Failed to get CAPI cluster")
-				return ctrl.Result{}, nil, err
+				return ctrl.Result{}, nil, nil, err
 			}
 			break
 		}
 	}
 
 	if capiCluster == nil {
-		return ctrl.Result{}, nil, fmt.Errorf("no matching cluster found for %s", checkpoint.Spec.ClusterRef.Name)
+		return ctrl.Result{}, nil, nil, fmt.Errorf(
+			"no matching cluster found for %s",
+			checkpoint.Spec.ClusterRef.Name,
+		)
 	}
 
-	//print the cluster data
 	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
 
-	clusterClient, _, err := capiCluster.GetClusterClient(ctx)
-	//initialize the cluster client
+	clusterClient, restConfig, _, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
-		return ctrl.Result{}, nil, err
+		return ctrl.Result{}, nil, nil, err
 	}
 
-	return ctrl.Result{}, clusterClient, nil
-
+	return ctrl.Result{}, clusterClient, restConfig, nil
 }
 
 // get kubelet token
@@ -417,7 +423,7 @@ func (r *CheckpointReconciler) isPodOnThisNode(ctx context.Context, backup *tran
 }
 
 // reconcileNormal handles the normal reconciliation logic
-func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL string) (ctrl.Result, error) {
+func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL, nodeName string, restConfig *rest.Config) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// Schedule checkpoint creation based on the schedule
@@ -434,7 +440,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClie
 
 	// Add new scheduled job
 	entryID, err := r.Scheduler.AddFunc(backup.Spec.Schedule, func() {
-		if err := r.performCheckpoint(context.Background(), workloadClient, backup, kubeletURL); err != nil {
+		if err := r.performCheckpoint(context.Background(), workloadClient, backup, kubeletURL, nodeName, restConfig); err != nil {
 			log.Error(err, "Failed to perform checkpoint", "backup", backup.Name)
 		}
 	})
@@ -448,7 +454,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClie
 
 	// Also perform immediate checkpoint on first reconcile
 	if backup.Status.LastCheckpointTime == nil {
-		if err := r.performCheckpoint(ctx, workloadClient, backup, kubeletURL); err != nil {
+		if err := r.performCheckpoint(ctx, workloadClient, backup, kubeletURL, nodeName, restConfig); err != nil {
 			log.Error(err, "Failed to perform initial checkpoint")
 			return ctrl.Result{}, err
 		}
@@ -484,7 +490,7 @@ func (r *CheckpointReconciler) reconcileDelete(ctx context.Context, backup *tran
 }
 
 // performCheckpoint performs the actual checkpoint operation
-func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL string) error {
+func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL, nodeName string, restConfig *rest.Config) error {
 	log := logf.FromContext(ctx)
 	log.Info("Starting checkpoint operation", "backup", backup.Name, "pod", backup.Spec.PodRef.Name)
 
@@ -503,8 +509,8 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 	}
 
 	// Process each container
-	for _, container := range backup.Spec.Containers {
-		if err := r.checkpointContainer(ctx, backup, &pod, container, kubeletURL); err != nil {
+	for _, container := range pod.Spec.Containers {
+		if err := r.checkpointContainer(ctx, backup, &pod, container, kubeletURL, nodeName, restConfig); err != nil {
 			log.Error(err, "Failed to checkpoint container", "container", container.Name)
 			return err
 		}
@@ -524,12 +530,12 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 }
 
 // checkpointContainer performs checkpoint operation for a single container
-func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *transitionv1.Checkpoint, pod *corev1.Pod, container transitionv1.Container, kubeletURL string) error {
+func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *transitionv1.Checkpoint, pod *corev1.Pod, container corev1.Container, kubeletURL, nodeName string, restConfig *rest.Config) error {
 	log := logf.FromContext(ctx)
 	log.Info("Checkpointing container", "container", container.Name, "pod", pod.Name)
 
 	// Step 1: Call kubelet checkpoint API
-	checkpointPath, err := r.KubeletClient.CreateCheckpoint(backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name, container.Name, kubeletURL)
+	checkpointPath, err := r.KubeletClient.CreateCheckpoint(ctx, restConfig, nodeName, backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name, container.Name, kubeletURL)
 	if err != nil {
 		return fmt.Errorf("failed to create checkpoint via kubelet API: %w", err)
 	}
@@ -576,70 +582,124 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 }
 
 // CreateCheckpoint calls kubelet checkpoint API
-func (kc *KubeletClient) CreateCheckpoint(namespace, podName, containerName, kubeletURL string) (string, error) {
-	url := fmt.Sprintf("%s/checkpoint/%s/%s/%s?timeout=60", kubeletURL, namespace, podName, containerName)
+func (kc *KubeletClient) CreateCheckpoint(ctx context.Context, restConfig *rest.Config, nodeName, namespace, podName, containerName, kubeletURL string) (string, error) {
+	url := fmt.Sprintf(
+		"%s/api/v1/nodes/%s/proxy/checkpoint/%s/%s/%s?timeout=60",
+		restConfig.Host,
+		nodeName,
+		namespace,
+		podName,
+		containerName,
+	)
 
-	req, err := http.NewRequest("POST", url, nil)
+	// Build transport that reuses kubeconfig auth (token / certs)
+	transport, err := rest.TransportFor(restConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to create transport: %w", err)
+	}
+
+	httpClient := &http.Client{
+		Transport: transport,
+		Timeout:   60 * time.Second,
+	}
+
+	// Send POST request
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+kc.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := kc.httpClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to call kubelet checkpoint API: %w", err)
+		return "", fmt.Errorf("failed to call kubelet checkpoint API via apiserver proxy: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("kubelet checkpoint API returned status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("checkpoint API returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	// First, try to read the response body to see what we actually get
+	// Parse response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read checkpoint response body: %w", err)
 	}
 
-	// Log the raw response for debugging
 	fmt.Printf("DEBUG: Kubelet checkpoint API response body: %s\n", string(body))
 
 	var checkpointResp CheckpointResponse
 	if err := json.Unmarshal(body, &checkpointResp); err != nil {
-		// If JSON parsing fails, fall back to file search by returning a placeholder
-		responseText := strings.TrimSpace(string(body))
-		fmt.Printf("DEBUG: Failed to parse JSON response from kubelet: %s\n", responseText)
-		return "unknown-checkpoint-file", nil
+		return "", fmt.Errorf("failed to parse checkpoint response: %w (raw=%s)", err, string(body))
 	}
 
 	if len(checkpointResp.Items) == 0 {
-		// If JSON response doesn't contain any items, fall back to file search
-		fmt.Printf("DEBUG: JSON response has no checkpoint items, falling back to file search\n")
-		return "unknown-checkpoint-file", nil
+		return "", fmt.Errorf("checkpoint API returned no items")
 	}
 
-	// Use the first (and likely only) checkpoint path from the response
-	checkpointPath := checkpointResp.Items[0]
-	fmt.Printf("DEBUG: Successfully parsed JSON response, checkpoint path: %s\n", checkpointPath)
+	return checkpointResp.Items[0], nil
 
-	// Convert absolute path to relative path (remove the base path prefix)
-	if strings.HasPrefix(checkpointPath, CheckpointBasePath+"/") {
-		relativePath := strings.TrimPrefix(checkpointPath, CheckpointBasePath+"/")
-		fmt.Printf("DEBUG: Converted to relative path: %s\n", relativePath)
-		return relativePath, nil
-	} else if strings.HasPrefix(checkpointPath, "/var/lib/kubelet/checkpoints/") {
-		relativePath := strings.TrimPrefix(checkpointPath, "/var/lib/kubelet/checkpoints/")
-		fmt.Printf("DEBUG: Converted to relative path: %s\n", relativePath)
-		return relativePath, nil
-	}
+	// req, err := http.NewRequest("POST", url, nil)
+	// if err != nil {
+	// 	return "", fmt.Errorf("failed to create request: %w", err)
+	// }
 
-	// If path doesn't have expected prefix, just return the filename
-	relativePath := filepath.Base(checkpointPath)
-	fmt.Printf("DEBUG: Using filename only: %s\n", relativePath)
-	return relativePath, nil
+	// req.Header.Set("Authorization", "Bearer "+kc.token)
+	// req.Header.Set("Content-Type", "application/json")
+
+	// resp, err := kc.httpClient.Do(req)
+	// if err != nil {
+	// 	return "", fmt.Errorf("failed to call kubelet checkpoint API: %w", err)
+	// }
+	// defer resp.Body.Close()
+
+	// if resp.StatusCode != http.StatusOK {
+	// 	body, _ := io.ReadAll(resp.Body)
+	// 	return "", fmt.Errorf("kubelet checkpoint API returned status %d: %s", resp.StatusCode, string(body))
+	// }
+
+	// // First, try to read the response body to see what we actually get
+	// body, err := io.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return "", fmt.Errorf("failed to read checkpoint response body: %w", err)
+	// }
+
+	// // Log the raw response for debugging
+	// fmt.Printf("DEBUG: Kubelet checkpoint API response body: %s\n", string(body))
+
+	// var checkpointResp CheckpointResponse
+	// if err := json.Unmarshal(body, &checkpointResp); err != nil {
+	// 	// If JSON parsing fails, fall back to file search by returning a placeholder
+	// 	responseText := strings.TrimSpace(string(body))
+	// 	fmt.Printf("DEBUG: Failed to parse JSON response from kubelet: %s\n", responseText)
+	// 	return "unknown-checkpoint-file", nil
+	// }
+
+	// if len(checkpointResp.Items) == 0 {
+	// 	// If JSON response doesn't contain any items, fall back to file search
+	// 	fmt.Printf("DEBUG: JSON response has no checkpoint items, falling back to file search\n")
+	// 	return "unknown-checkpoint-file", nil
+	// }
+
+	// // Use the first (and likely only) checkpoint path from the response
+	// checkpointPath := checkpointResp.Items[0]
+	// fmt.Printf("DEBUG: Successfully parsed JSON response, checkpoint path: %s\n", checkpointPath)
+
+	// // Convert absolute path to relative path (remove the base path prefix)
+	// if strings.HasPrefix(checkpointPath, CheckpointBasePath+"/") {
+	// 	relativePath := strings.TrimPrefix(checkpointPath, CheckpointBasePath+"/")
+	// 	fmt.Printf("DEBUG: Converted to relative path: %s\n", relativePath)
+	// 	return relativePath, nil
+	// } else if strings.HasPrefix(checkpointPath, "/var/lib/kubelet/checkpoints/") {
+	// 	relativePath := strings.TrimPrefix(checkpointPath, "/var/lib/kubelet/checkpoints/")
+	// 	fmt.Printf("DEBUG: Converted to relative path: %s\n", relativePath)
+	// 	return relativePath, nil
+	// }
+
+	// // If path doesn't have expected prefix, just return the filename
+	// relativePath := filepath.Base(checkpointPath)
+	// fmt.Printf("DEBUG: Using filename only: %s\n", relativePath)
+	// return relativePath, nil
 }
 
 // findCheckpointFile finds the most recent checkpoint file for a given pod and container

@@ -29,6 +29,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/scale/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -65,9 +66,9 @@ func (r *Capi) GetClusterName() string {
 	return strings.TrimSuffix(r.Secret.GetName(), kubeConfigSuffix)
 }
 
-func (r *Capi) GetClusterClient(ctx context.Context) (resource.APIPatchingApplicator, bool, error) {
+func (r *Capi) GetClusterClient(ctx context.Context) (resource.APIPatchingApplicator, *rest.Config, bool, error) {
 	if !r.isCapiClusterReady(ctx) {
-		return resource.APIPatchingApplicator{}, false, nil
+		return resource.APIPatchingApplicator{}, nil, false, nil
 	}
 	return getCapiClusterClient(r.Secret)
 }
@@ -105,35 +106,23 @@ func isReady(cs capiv1beta1.Conditions) bool {
 	return false
 }
 
-func getCapiClusterClient(secret *corev1.Secret) (resource.APIPatchingApplicator, bool, error) {
-	// Load the scheme with Velero
-
+func getCapiClusterClient(secret *corev1.Secret) (resource.APIPatchingApplicator, *rest.Config, bool, error) {
 	scheme := GetDefaultKubeScheme()
-
-	s := GetDefaultKubeScheme()
-
-	utilruntime.Must(velerov1.AddToScheme(s))
-	_ = velerov1.AddToScheme(scheme)
-
+	utilruntime.Must(velerov1.AddToScheme(scheme))
 	_ = argov1alpha1.AddToScheme(scheme)
-	// Add other APIs you use...
 
-	//provide a rest config from the secret value
+	// build rest.Config from kubeconfig
 	config, err := clientcmd.RESTConfigFromKubeConfig(secret.Data["value"])
 	if err != nil {
-		return resource.APIPatchingApplicator{}, false, err
-	}
-	// build a cluster client from the kube rest config
-	// clClient, err := client.New(config, client.Options{})
-	// if err != nil {
-	// 	return resource.APIPatchingApplicator{}, false, err
-	// }
-	clClient, err := client.New(config, client.Options{Scheme: scheme})
-	if err != nil {
-		return resource.APIPatchingApplicator{}, false, err
+		return resource.APIPatchingApplicator{}, nil, false, err
 	}
 
-	return resource.NewAPIPatchingApplicator(clClient), true, nil
+	clClient, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		return resource.APIPatchingApplicator{}, nil, false, err
+	}
+
+	return resource.NewAPIPatchingApplicator(clClient), config, true, nil
 }
 
 // GetCapiCluster returns a Capi instance for the given secret.
@@ -214,3 +203,5 @@ func GetDefaultKubeScheme() *runtime.Scheme {
 
 	return s
 }
+
+// NEW

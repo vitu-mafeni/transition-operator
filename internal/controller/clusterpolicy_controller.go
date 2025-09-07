@@ -163,7 +163,7 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster, req ctrl.Request) {
 	log := logf.FromContext(ctx)
 	// get all pods in the cluster
-	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
 		return
@@ -208,7 +208,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
 	log := logf.FromContext(ctx)
 	// get all pods in the cluster
-	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
 		return
@@ -241,7 +241,7 @@ func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Conte
 	log := logf.FromContext(ctx)
 	log.Info("Handling machine in workload cluster", "machine", machine.Name, "status", machine.Status.Phase)
 
-	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
 		return
@@ -736,7 +736,7 @@ func (r *ClusterPolicyReconciler) GetWorkloadClusterClientByName(ctx context.Con
 		return nil, err, resource.APIPatchingApplicator{}
 	}
 
-	clusterClient, ready, err := capiCluster.GetClusterClient(ctx)
+	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
 		return nil, err, resource.APIPatchingApplicator{}
