@@ -253,52 +253,44 @@ func (r *CheckpointReconciler) getWorkloadClient(ctx context.Context, checkpoint
 }
 
 // get kubelet token
-func getKubeletToken(ctx context.Context, workloadClient client.Client) (string, error) {
-	// // 1. Get the ServiceAccount from the workload cluster
-
-	// sa := &corev1.ServiceAccount{}
-	// if err := workloadClient.Get(ctx, types.NamespacedName{
-	// 	Name:      checkpoint_saName,
-	// 	Namespace: checkpoint_saNamespace,
-	// }, sa); err != nil {
-	// 	return "", fmt.Errorf("failed to get service account: %w", err)
-	// }
-	// if len(sa.Secrets) == 0 {
-	// 	return "", fmt.Errorf("service account %s has no secrets", checkpoint_saName)
-	// }
-	// // 2. Get the referenced Secret (token)
-	// secret := &corev1.Secret{}
-	// if err := workloadClient.Get(ctx, types.NamespacedName{
-	// 	Name:      sa.Secrets[0].Name,
-	// 	Namespace: checkpoint_saNamespace,
-	// }, secret); err != nil {
-	// 	return "", fmt.Errorf("failed to get service account secret: %w", err)
-	// }
-	// tokenBytes, ok := secret.Data["token"]
-	// if !ok {
-	// 	return "", fmt.Errorf("service account secret does not contain a token")
-	// }
-	// return string(tokenBytes), nil
-	// Read the token from the mounted service account file
-	sa := &corev1.ServiceAccount{}
-	if err := workloadClient.Get(ctx, types.NamespacedName{
-		Name:      checkpoint_saName,
-		Namespace: checkpoint_saNamespace,
-	}, sa); err != nil {
-		return "", fmt.Errorf("failed to get service account: %w", err)
-	}
-
+func getKubeletToken(ctx context.Context, workloadClient client.Client, saName, saNamespace string) ([]byte, error) {
+	// Try TokenRequest API first
 	tr := &authenticationv1.TokenRequest{
 		Spec: authenticationv1.TokenRequestSpec{
 			Audiences:         []string{"https://kubernetes.default.svc"},
 			ExpirationSeconds: pointer.Int64(3600),
 		},
 	}
-	if err := workloadClient.SubResource("token").Create(ctx, sa, tr); err != nil {
-		return "", fmt.Errorf("failed to request token: %w", err)
+
+	sa := &corev1.ServiceAccount{}
+	if err := workloadClient.Get(ctx, types.NamespacedName{
+		Name:      saName,
+		Namespace: saNamespace,
+	}, sa); err != nil {
+		return nil, fmt.Errorf("failed to get service account: %w", err)
 	}
-	token := tr.Status.Token
-	return token, nil
+
+	// Use Token subresource if supported
+	if err := workloadClient.SubResource("token").Create(ctx, sa, tr); err == nil {
+		return []byte(tr.Status.Token), nil
+	}
+
+	// Fallback: find a Secret with the right annotation
+	secretList := &corev1.SecretList{}
+	if err := workloadClient.List(ctx, secretList, client.InNamespace(saNamespace)); err != nil {
+		return nil, fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	for _, s := range secretList.Items {
+		if s.Type == corev1.SecretTypeServiceAccountToken &&
+			s.Annotations["kubernetes.io/service-account.name"] == saName {
+			if token, ok := s.Data["token"]; ok {
+				return token, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no token secret found for service account %s", saName)
 }
 
 // initializeClients initializes the kubelet and registry clients
@@ -312,7 +304,7 @@ func (r *CheckpointReconciler) initializeClients(ctx context.Context, backup *tr
 	}
 
 	if r.RegistryClient == nil {
-		registryClient, err := r.NewRegistryClient(ctx, backup.Spec.Registry)
+		registryClient, err := r.NewRegistryClient(ctx, workloadClient, backup.Spec.Registry)
 		if err != nil {
 			return fmt.Errorf("failed to create registry client: %w", err)
 		}
@@ -329,46 +321,21 @@ func (r *CheckpointReconciler) initializeClients(ctx context.Context, backup *tr
 }
 
 // NewKubeletClient creates a new kubelet client
+// NewKubeletClient creates a new kubelet client
 func NewKubeletClient(ctx context.Context, nodeIP string, workloadClient client.Client) (*KubeletClient, error) {
-	// 1. Get the ServiceAccount from the workload cluster
-	sa := &corev1.ServiceAccount{}
-	if err := workloadClient.Get(ctx, types.NamespacedName{
-		Name:      checkpoint_saName,
-		Namespace: checkpoint_saNamespace,
-	}, sa); err != nil {
-		return nil, fmt.Errorf("failed to get service account: %w", err)
-	}
-
-	if len(sa.Secrets) == 0 {
-		return nil, fmt.Errorf("service account %s has no secrets", checkpoint_saName)
-	}
-
-	// 2. Get the referenced Secret (token)
-	// secret := &corev1.Secret{}
-	// if err := workloadClient.Get(ctx, types.NamespacedName{
-	// 	Name:      sa.Secrets[0].Name,
-	// 	Namespace: checkpoint_saNamespace,
-	// }, secret); err != nil {
-	// 	return nil, fmt.Errorf("failed to get service account secret: %w", err)
-	// }
-
-	// tokenBytes, ok := secret.Data["token"]
-	// if !ok {
-	// 	return nil, fmt.Errorf("service account secret does not contain a token")
-	// }
-
-	tokenBytes, err := getKubeletToken(ctx, workloadClient)
+	// 1. Get token via TokenRequest (or fallback)
+	tokenBytes, err := getKubeletToken(ctx, workloadClient, checkpoint_saName, checkpoint_saNamespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kubelet token: %w", err)
 	}
 
-	// 3. Build kubelet URL
+	// 2. Build kubelet URL
 	kubeletURL := "https://localhost:10250"
 	if nodeIP != "" {
 		kubeletURL = fmt.Sprintf("https://%s:10250", nodeIP)
 	}
 
-	// 4. Create HTTP client
+	// 3. Create HTTP client
 	httpClient := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -384,10 +351,14 @@ func NewKubeletClient(ctx context.Context, nodeIP string, workloadClient client.
 }
 
 // NewRegistryClient creates a new registry client using the registry configuration from Checkpoint
-func (r *CheckpointReconciler) NewRegistryClient(ctx context.Context, registryConfig transitionv1.Registry) (*RegistryClient, error) {
+func (r *CheckpointReconciler) NewRegistryClient(
+	ctx context.Context,
+	workloadClient client.Client,
+	registryConfig transitionv1.Registry,
+) (*RegistryClient, error) {
 	// Determine secret name and namespace
-	secretName := "registry-credentials"    // default fallback
-	secretNamespace := "stateful-migration" // default fallback
+	secretName := "reg-credentials" // default fallback
+	secretNamespace := "default"    // default fallback
 
 	if registryConfig.SecretRef != nil {
 		secretName = registryConfig.SecretRef.Name
@@ -396,9 +367,9 @@ func (r *CheckpointReconciler) NewRegistryClient(ctx context.Context, registryCo
 		}
 	}
 
-	// Get registry credentials from secret
+	// Get registry credentials from workload cluster secret
 	var secret corev1.Secret
-	if err := r.Get(ctx, types.NamespacedName{
+	if err := workloadClient.Get(ctx, types.NamespacedName{
 		Name:      secretName,
 		Namespace: secretNamespace,
 	}, &secret); err != nil {
@@ -413,13 +384,13 @@ func (r *CheckpointReconciler) NewRegistryClient(ctx context.Context, registryCo
 		return nil, fmt.Errorf("registry credentials are empty in secret %s/%s", secretNamespace, secretName)
 	}
 
-	// Use registry URL from configuration, fall back to secret data, then default
+	// Use registry URL from config → secret → fallback
 	registryURL := registryConfig.URL
 	if registryURL == "" && registry != "" {
 		registryURL = registry
 	}
 	if registryURL == "" {
-		registryURL = "docker.io" // Default to Docker Hub if no registry specified
+		registryURL = "docker.io"
 	}
 
 	return &RegistryClient{
