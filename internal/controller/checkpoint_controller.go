@@ -208,7 +208,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// }
 
 	// Handle normal reconciliation
-	return r.reconcileNormal(ctx, &Checkpoint, nodeKubeletURL)
+	return r.reconcileNormal(ctx, workloadClient, &Checkpoint, nodeKubeletURL)
 
 }
 
@@ -417,7 +417,7 @@ func (r *CheckpointReconciler) isPodOnThisNode(ctx context.Context, backup *tran
 }
 
 // reconcileNormal handles the normal reconciliation logic
-func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *transitionv1.Checkpoint, kubeletURL string) (ctrl.Result, error) {
+func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	// Schedule checkpoint creation based on the schedule
@@ -434,7 +434,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *tran
 
 	// Add new scheduled job
 	entryID, err := r.Scheduler.AddFunc(backup.Spec.Schedule, func() {
-		if err := r.performCheckpoint(context.Background(), backup, kubeletURL); err != nil {
+		if err := r.performCheckpoint(context.Background(), workloadClient, backup, kubeletURL); err != nil {
 			log.Error(err, "Failed to perform checkpoint", "backup", backup.Name)
 		}
 	})
@@ -448,7 +448,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, backup *tran
 
 	// Also perform immediate checkpoint on first reconcile
 	if backup.Status.LastCheckpointTime == nil {
-		if err := r.performCheckpoint(ctx, backup, kubeletURL); err != nil {
+		if err := r.performCheckpoint(ctx, workloadClient, backup, kubeletURL); err != nil {
 			log.Error(err, "Failed to perform initial checkpoint")
 			return ctrl.Result{}, err
 		}
@@ -484,13 +484,13 @@ func (r *CheckpointReconciler) reconcileDelete(ctx context.Context, backup *tran
 }
 
 // performCheckpoint performs the actual checkpoint operation
-func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, backup *transitionv1.Checkpoint, kubeletURL string) error {
+func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL string) error {
 	log := logf.FromContext(ctx)
 	log.Info("Starting checkpoint operation", "backup", backup.Name, "pod", backup.Spec.PodRef.Name)
 
 	// Get pod to ensure it exists and is ready
 	var pod corev1.Pod
-	if err := r.Get(ctx, types.NamespacedName{
+	if err := workloadClient.Get(ctx, types.NamespacedName{
 		Name:      backup.Spec.PodRef.Name,
 		Namespace: backup.Spec.PodRef.Namespace,
 	}, &pod); err != nil {
