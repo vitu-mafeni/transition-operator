@@ -554,42 +554,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 		return fmt.Errorf("failed to create checkpoint via kubelet API: %w", err)
 	}
 
-	// Step 1.5: Verify the checkpoint file exists (kubelet API should have returned the exact path)
-	fullCheckpointPath := filepath.Join(CheckpointBasePath, checkpointPath)
-	if _, err := os.Stat(fullCheckpointPath); os.IsNotExist(err) {
-		// If the file doesn't exist, fall back to file search
-		log.Info("Checkpoint file from API response not found, searching for alternative", "expectedPath", checkpointPath)
-		actualCheckpointPath, err := r.findCheckpointFile(backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name, container.Name, checkpointPath)
-		if err != nil {
-			return fmt.Errorf("failed to find checkpoint file after creation: %w", err)
-		}
-		log.Info("Found alternative checkpoint file", "actualPath", actualCheckpointPath, "originalExpected", checkpointPath)
-		checkpointPath = actualCheckpointPath
-	} else {
-		log.Info("Checkpoint file found as expected", "path", checkpointPath)
-	}
-
-	// Step 2: Get the original container image
-	var baseImage string
-	for _, c := range pod.Spec.Containers {
-		if c.Name == container.Name {
-			baseImage = c.Image
-			break
-		}
-	}
-	if baseImage == "" {
-		return fmt.Errorf("could not find base image for container %s", container.Name)
-	}
-
-	// Step 3: Build checkpoint image using buildah
-	if err := r.buildCheckpointImage(checkpointPath, container.Image, baseImage, container.Name); err != nil {
-		return fmt.Errorf("failed to build checkpoint image: %w", err)
-	}
-
-	// Step 4: Push image to registry
-	if err := r.RegistryClient.PushImage(container.Image); err != nil {
-		return fmt.Errorf("failed to push checkpoint image: %w", err)
-	}
+	log.Info("Checkpoint created", "checkpointPath", checkpointPath)
 
 	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", container.Image)
 	return nil
@@ -651,69 +616,34 @@ func (kc *KubeletClient) CreateCheckpoint(ctx context.Context, restConfig *rest.
 		return "", fmt.Errorf("checkpoint API returned no items")
 	}
 
+	fmt.Printf("DEBUG ERROR: FILENAME: %s\n", checkpointResp.Items[0])
+
 	return checkpointResp.Items[0], nil
 
-	// req, err := http.NewRequest("POST", url, nil)
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to create request: %w", err)
-	// }
+}
 
-	// req.Header.Set("Authorization", "Bearer "+kc.token)
-	// req.Header.Set("Content-Type", "application/json")
+// get the checkpoint file from the node using the apiserver proxy
+func (kc *KubeletClient) DownloadCheckpoint(ctx context.Context, restConfig *rest.Config, nodeName, checkpointFile string) ([]byte, error) {
+	url := fmt.Sprintf("%s/api/v1/nodes/%s/proxy/%s", restConfig.Host, nodeName, checkpointFile)
 
-	// resp, err := kc.httpClient.Do(req)
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to call kubelet checkpoint API: %w", err)
-	// }
-	// defer resp.Body.Close()
+	transport, err := rest.TransportFor(restConfig)
+	if err != nil {
+		return nil, err
+	}
 
-	// if resp.StatusCode != http.StatusOK {
-	// 	body, _ := io.ReadAll(resp.Body)
-	// 	return "", fmt.Errorf("kubelet checkpoint API returned status %d: %s", resp.StatusCode, string(body))
-	// }
+	client := &http.Client{Transport: transport, Timeout: 120 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
 
-	// // First, try to read the response body to see what we actually get
-	// body, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	return "", fmt.Errorf("failed to read checkpoint response body: %w", err)
-	// }
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to download checkpoint: %s", string(body))
+	}
 
-	// // Log the raw response for debugging
-	// fmt.Printf("DEBUG: Kubelet checkpoint API response body: %s\n", string(body))
-
-	// var checkpointResp CheckpointResponse
-	// if err := json.Unmarshal(body, &checkpointResp); err != nil {
-	// 	// If JSON parsing fails, fall back to file search by returning a placeholder
-	// 	responseText := strings.TrimSpace(string(body))
-	// 	fmt.Printf("DEBUG: Failed to parse JSON response from kubelet: %s\n", responseText)
-	// 	return "unknown-checkpoint-file", nil
-	// }
-
-	// if len(checkpointResp.Items) == 0 {
-	// 	// If JSON response doesn't contain any items, fall back to file search
-	// 	fmt.Printf("DEBUG: JSON response has no checkpoint items, falling back to file search\n")
-	// 	return "unknown-checkpoint-file", nil
-	// }
-
-	// // Use the first (and likely only) checkpoint path from the response
-	// checkpointPath := checkpointResp.Items[0]
-	// fmt.Printf("DEBUG: Successfully parsed JSON response, checkpoint path: %s\n", checkpointPath)
-
-	// // Convert absolute path to relative path (remove the base path prefix)
-	// if strings.HasPrefix(checkpointPath, CheckpointBasePath+"/") {
-	// 	relativePath := strings.TrimPrefix(checkpointPath, CheckpointBasePath+"/")
-	// 	fmt.Printf("DEBUG: Converted to relative path: %s\n", relativePath)
-	// 	return relativePath, nil
-	// } else if strings.HasPrefix(checkpointPath, "/var/lib/kubelet/checkpoints/") {
-	// 	relativePath := strings.TrimPrefix(checkpointPath, "/var/lib/kubelet/checkpoints/")
-	// 	fmt.Printf("DEBUG: Converted to relative path: %s\n", relativePath)
-	// 	return relativePath, nil
-	// }
-
-	// // If path doesn't have expected prefix, just return the filename
-	// relativePath := filepath.Base(checkpointPath)
-	// fmt.Printf("DEBUG: Using filename only: %s\n", relativePath)
-	// return relativePath, nil
+	return io.ReadAll(resp.Body)
 }
 
 // findCheckpointFile finds the most recent checkpoint file for a given pod and container
