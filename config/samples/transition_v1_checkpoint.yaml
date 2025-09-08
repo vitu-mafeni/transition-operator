@@ -10,7 +10,7 @@ spec:
     schedule: "0/1 * * * *" # Every 15 minutes
     # Select Pod to checkpoint
     clusterRef:
-      name: migrationdev
+      name: cluster1-capo
     podRef:
       namespace: default
       name: test-pod

@@ -176,3 +176,6 @@ export POD_NAMESPACE="default"
 ```text
 transition working - cilium CNI
 ```
+
+
+create registry secret and checkpoint-sa on each workload cluster

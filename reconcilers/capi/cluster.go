@@ -19,6 +19,7 @@ package capi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 
@@ -68,7 +69,9 @@ func (r *Capi) GetClusterName() string {
 
 func (r *Capi) GetClusterClient(ctx context.Context) (resource.APIPatchingApplicator, *rest.Config, bool, error) {
 	if !r.isCapiClusterReady(ctx) {
-		return resource.APIPatchingApplicator{}, nil, false, nil
+
+		return resource.APIPatchingApplicator{}, nil, false, fmt.Errorf("workload cluster %q not Ready yet", r.GetClusterName())
+
 	}
 	return getCapiClusterClient(r.Secret)
 }

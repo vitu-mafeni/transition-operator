@@ -153,21 +153,26 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Get workload cluster client
-	_, workloadClient, restConfig, err := r.getWorkloadClient(ctx, Checkpoint)
+	clusterResult, workloadClusterClient, restConfig, err := r.getWorkloadClient(ctx, Checkpoint)
 	if err != nil {
-		log.Error(err, "Failed to get workload cluster client")
-		return ctrl.Result{}, err
+		log.Error(err, "Failed to get workload cluster client", "checkpoint", Checkpoint.Name)
+		return clusterResult, err
+	}
+	if workloadClusterClient == nil {
+		// Cluster not ready or being deleted; just requeue
+		log.Info("Cluster client not available yet", "checkpoint", Checkpoint.Name)
+		return clusterResult, nil
 	}
 
 	// Get all nodes in workload cluster
 	var nodeList corev1.NodeList
-	if err := workloadClient.List(ctx, &nodeList); err != nil {
+	if err := workloadClusterClient.List(ctx, &nodeList); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to list nodes in workload cluster: %w", err)
 	}
 
 	// Get the Pod
 	var pod corev1.Pod
-	if err := workloadClient.Get(ctx, types.NamespacedName{
+	if err := workloadClusterClient.Get(ctx, types.NamespacedName{
 		Name:      Checkpoint.Spec.PodRef.Name,
 		Namespace: Checkpoint.Spec.PodRef.Namespace,
 	}, &pod); err != nil {
@@ -185,14 +190,16 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				if addr.Type == corev1.NodeInternalIP {
 					nodeKubeletIP := addr.Address
 					nodeKubeletURL = fmt.Sprintf("https://%s:10250", nodeKubeletIP)
-					NewKubeletClient(ctx, nodeKubeletIP, workloadClient)
+					NewKubeletClient(ctx, nodeKubeletIP, workloadClusterClient)
 				}
 			}
 		}
 	}
 
+	// fmt.Print("node ip address success ssssss: ", nodeKubeletIP)
+
 	// Initialize clients if not already done
-	if err := r.initializeClients(ctx, &Checkpoint, nodeKubeletIP, workloadClient); err != nil {
+	if err := r.initializeClients(ctx, &Checkpoint, nodeKubeletIP, workloadClusterClient); err != nil {
 		log.Error(err, "Failed to initialize clients")
 		return ctrl.Result{}, err
 	}
@@ -210,7 +217,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// }
 
 	// Handle normal reconciliation
-	return r.reconcileNormal(ctx, workloadClient, &Checkpoint, nodeKubeletURL, nodeName, restConfig)
+	return r.reconcileNormal(ctx, workloadClusterClient, &Checkpoint, nodeKubeletURL, nodeName, restConfig)
 
 }
 
@@ -249,10 +256,15 @@ func (r *CheckpointReconciler) getWorkloadClient(
 
 	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
 
-	clusterClient, restConfig, _, err := capiCluster.GetClusterClient(ctx)
+	clusterClient, restConfig, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
-		return ctrl.Result{}, nil, nil, err
+		// Requeue so we try again later
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
+	}
+	if !ready {
+		log.Info("Workload cluster not Ready yet, requeueing", "cluster", capiCluster.GetClusterName())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
 	}
 
 	return ctrl.Result{}, clusterClient, restConfig, nil
@@ -425,6 +437,8 @@ func (r *CheckpointReconciler) isPodOnThisNode(ctx context.Context, backup *tran
 // reconcileNormal handles the normal reconciliation logic
 func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL, nodeName string, restConfig *rest.Config) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
+
+	fmt.Print("Node --------------", kubeletURL)
 
 	// Schedule checkpoint creation based on the schedule
 	backupKey := types.NamespacedName{
@@ -626,7 +640,7 @@ func (kc *KubeletClient) CreateCheckpoint(ctx context.Context, restConfig *rest.
 		return "", fmt.Errorf("failed to read checkpoint response body: %w", err)
 	}
 
-	fmt.Printf("DEBUG: Kubelet checkpoint API response body: %s\n", string(body))
+	fmt.Printf("DEBUG ERROR: Kubelet checkpoint API response body: %s\n", string(body))
 
 	var checkpointResp CheckpointResponse
 	if err := json.Unmarshal(body, &checkpointResp); err != nil {
