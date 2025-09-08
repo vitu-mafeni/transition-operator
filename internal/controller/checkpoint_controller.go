@@ -43,9 +43,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	"github.com/minio/minio-go/v7"
 	"github.com/robfig/cron/v3"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
+	"github.com/vitu1234/transition-operator/reconcilers/miniohelper"
 )
 
 const (
@@ -75,6 +77,7 @@ type CheckpointReconciler struct {
 	RegistryClient *RegistryClient
 	Scheduler      *cron.Cron
 	scheduledJobs  map[string]cron.EntryID // Track scheduled jobs
+	MinioClient    *MinioClient
 }
 
 // KubeletClient handles communication with kubelet API
@@ -91,6 +94,11 @@ type RegistryClient struct {
 	username string
 	password string
 	registry string
+}
+
+type MinioClient struct {
+	minioClient *minio.Client
+	bucketName  string
 }
 
 // // CheckpointReconciler reconciles a Checkpoint object
@@ -321,6 +329,13 @@ func (r *CheckpointReconciler) initializeClients(ctx context.Context, backup *tr
 		r.KubeletClient = kubeletClient
 	}
 
+	//initialize minio client
+	minioClient, bucketName, err := NewMinioClient(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create minio client: %w", err)
+	}
+	r.MinioClient = &MinioClient{minioClient: minioClient, bucketName: bucketName}
+
 	if r.RegistryClient == nil {
 		registryClient, err := r.NewRegistryClient(ctx, workloadClient, backup.Spec.Registry)
 		if err != nil {
@@ -366,6 +381,14 @@ func NewKubeletClient(ctx context.Context, nodeIP string, workloadClient client.
 		token:      string(tokenBytes),
 		kubeletURL: kubeletURL,
 	}, nil
+}
+
+func NewMinioClient(ctx context.Context) (client *minio.Client, bucket string, err error) {
+	minioClient, bucketName, err := miniohelper.InitializeMinio(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to initialize MinIO client: %w", err)
+	}
+	return minioClient, bucketName, nil
 }
 
 // NewRegistryClient creates a new registry client using the registry configuration from Checkpoint
@@ -557,6 +580,20 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	log.Info("Checkpoint created", "checkpointPath", checkpointPath)
 
 	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", container.Image)
+
+	//check if file exists in minio bucket
+	fileExists, err := miniohelper.FileExistsInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath)
+	if err != nil {
+		log.Error(err, "Failed to check if file exists in MinIO")
+		return err
+	}
+	if !fileExists {
+		log.Info("File does not exist in MinIO, skipping upload", "file", checkpointPath)
+		return nil
+	}
+
+	log.Info("File already exists in MinIO, triggering restoration on another cluster", "file", checkpointPath)
+
 	return nil
 }
 

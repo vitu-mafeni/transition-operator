@@ -165,14 +165,20 @@ kubectl create secret generic git-user-secret \
   --from-literal=password=secret \
   -n default
 ```
-## Create environment variables
+## Create gitea environment variables
 ```bash
 export GIT_SERVER_URL="http://192.168.28.105:32717"
 export GIT_SECRET_NAME="git-user-secret"
 export GIT_SECRET_NAMESPACE="default"
 export POD_NAMESPACE="default"
 ```
-
+## Create minio environment variables
+```bash
+export  MINIO_ENDPOINT="192.168.28.111:30350"
+export  MINIO_ACCESS_KEY="nephio1234"
+export  MINIO_SECRET_KEY="secret1234"
+export  MINIO_BUCKET="checkpoints"
+```
 ```text
 transition working - cilium CNI
 ```
