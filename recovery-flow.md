@@ -178,6 +178,8 @@ export  MINIO_ENDPOINT="192.168.28.111:30350"
 export  MINIO_ACCESS_KEY="nephio1234"
 export  MINIO_SECRET_KEY="secret1234"
 export  MINIO_BUCKET="checkpoints"
+
+apt-install buildah -y
 ```
 ```text
 transition working - cilium CNI

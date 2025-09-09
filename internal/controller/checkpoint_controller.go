@@ -581,16 +581,51 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 
 	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", container.Image)
 
+	//delay for a few seconds to ensure the file is available
+	objectName := filepath.Base(checkpointPath)
+
 	//check if file exists in minio bucket
-	fileExists, err := miniohelper.FileExistsInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath)
-	if err != nil {
-		log.Error(err, "Failed to check if file exists in MinIO")
+	// fileExists, err := miniohelper.FileExistsInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath)
+	// Wait until file is in MinIO before proceeding
+	if err := miniohelper.WaitForFileInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath, 30*time.Second, 500*time.Millisecond); err != nil {
+		log.Info("File did not appear in MinIO in time: %v", err)
 		return err
 	}
-	if !fileExists {
-		log.Info("File does not exist in MinIO, skipping upload", "file", checkpointPath)
-		return nil
+
+	// The previous error check is unnecessary because 'err' is always nil here.
+	// if !fileExists {
+	// 	log.Info("File does not exist in MinIO, skipping upload", "file", checkpointPath)
+	// 	return nil
+	// }
+
+	//download file from minio
+	err = miniohelper.DownloadFileFromMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, objectName, checkpointPath)
+	if err != nil {
+		log.Error(err, "Failed to download file from MinIO")
+		return err
 	}
+
+	// Step 3: Build checkpoint image
+	podFullName := fmt.Sprintf("%s_%s", backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name)
+	imageName := fmt.Sprintf("%s/checkpoint-%s-%s:latest", backup.Spec.Registry.URL, podFullName, container.Name)
+	baseImage := container.Image
+	if err := r.buildCheckpointImage(checkpointPath, imageName, baseImage, container.Name); err != nil {
+		log.Error(err, "Failed to build checkpoint image")
+		return err
+	}
+
+	// Step 4: Push image to registry
+	if err := r.RegistryClient.PushImage(imageName); err != nil {
+		log.Error(err, "Failed to push checkpoint image to registry")
+		return err
+	}
+
+	// // Step 5: Update status with image name
+	// backup.Status.LastCheckpointImage = imageName
+	// if err := r.Status().Update(ctx, backup); err != nil {
+	// 	log.Error(err, "Failed to update backup status with image name")
+	// 	return err
+	// }
 
 	log.Info("File already exists in MinIO, triggering restoration on another cluster", "file", checkpointPath)
 
@@ -659,30 +694,6 @@ func (kc *KubeletClient) CreateCheckpoint(ctx context.Context, restConfig *rest.
 
 }
 
-// get the checkpoint file from the node using the apiserver proxy
-func (kc *KubeletClient) DownloadCheckpoint(ctx context.Context, restConfig *rest.Config, nodeName, checkpointFile string) ([]byte, error) {
-	url := fmt.Sprintf("%s/api/v1/nodes/%s/proxy/%s", restConfig.Host, nodeName, checkpointFile)
-
-	transport, err := rest.TransportFor(restConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	client := &http.Client{Transport: transport, Timeout: 120 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to download checkpoint: %s", string(body))
-	}
-
-	return io.ReadAll(resp.Body)
-}
-
 // findCheckpointFile finds the most recent checkpoint file for a given pod and container
 func (r *CheckpointReconciler) findCheckpointFile(namespace, podName, containerName, expectedPath string) (string, error) {
 	// First try the expected path
@@ -748,7 +759,15 @@ func (r *CheckpointReconciler) buildCheckpointImage(checkpointPath, imageName, b
 	log := logf.FromContext(context.Background())
 
 	// Verify the checkpoint file exists (should have been found by findCheckpointFile)
-	fullCheckpointPath := filepath.Join(CheckpointBasePath, checkpointPath)
+
+	var fullCheckpointPath string
+	if filepath.IsAbs(checkpointPath) {
+		fullCheckpointPath = checkpointPath
+	} else {
+		fullCheckpointPath = filepath.Join(CheckpointBasePath, checkpointPath)
+	}
+
+	// fullCheckpointPath := filepath.Join(CheckpointBasePath, checkpointPath)
 	if _, err := os.Stat(fullCheckpointPath); os.IsNotExist(err) {
 		return fmt.Errorf("checkpoint file does not exist: %s (this should not happen after findCheckpointFile)", fullCheckpointPath)
 	}
