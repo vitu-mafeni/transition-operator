@@ -38,6 +38,7 @@ import (
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
+	checkpointtransition "github.com/vitu1234/transition-operator/reconcilers/checkpoint_transition"
 	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
 	"github.com/vitu1234/transition-operator/reconcilers/helpers"
 	giteahelpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
@@ -95,6 +96,19 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	}
 
+	// iterate through all package selectors and check if its a live package
+	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
+		if pkg.LiveStatePackage {
+			log.Info("Found live state package", "package", pkg.Name)
+
+			//we have to create checkpoints for this package
+			err := r.CreateCheckpointForLiveStatePackage(ctx, clusterList, pkg, clusterPolicy)
+			if err != nil {
+				log.Error(err, "Failed to create checkpoint resource for live state package", "package", pkg.Name)
+			}
+		}
+	}
+
 	//get the clusters
 	for _, workload_cluster := range clusterList.Items {
 		// log.Info("Cluster found", "name", cluster.Name, "namespace", cluster.Namespace)
@@ -117,6 +131,16 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// logf.FromContext(ctx).Info("Number of clusters", "count", numClusters)
 
 	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+}
+
+func (r *ClusterPolicyReconciler) CreateCheckpointForLiveStatePackage(ctx context.Context, clusterList *capiv1beta1.ClusterList, pkg transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy) error {
+	for _, workload_cluster := range clusterList.Items {
+
+		if clusterPolicy.Spec.ClusterSelector.Name == workload_cluster.Name {
+			checkpointtransition.PerformWorkloadClusterCheckpointAction(ctx, pkg, &workload_cluster)
+		}
+	}
+	return nil
 }
 
 func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, cluster *capiv1beta1.Cluster, req ctrl.Request) {

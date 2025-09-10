@@ -8,7 +8,7 @@ You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
+distributed under the License is distributed on an "AS IS" BASIS,0
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
@@ -84,7 +84,7 @@ type PackageSelector struct {
 	PackagePath       string              `json:"packagePath"`
 	PackageType       PackageType         `json:"packageType"` // e.g., stateful, stateless
 	Selected          bool                `json:"selected"`
-	LivePackage       bool                `json:"livePackage,omitempty"`
+	LiveStatePackage  bool                `json:"liveStatePackage,omitempty"`
 	BackupInformation []BackupInformation `json:"backupInformation"`
 }
 
