@@ -85,8 +85,6 @@ type KubeletClient struct {
 	httpClient *http.Client
 	token      string
 	kubeletURL string
-	baseURL    string
-	nodeName   string
 }
 
 // RegistryClient handles container registry operations
@@ -441,22 +439,6 @@ func (r *CheckpointReconciler) NewRegistryClient(
 	}, nil
 }
 
-// isPodOnThisNode checks if the pod referenced in Checkpoint is on this node
-func (r *CheckpointReconciler) isPodOnThisNode(ctx context.Context, backup *transitionv1.Checkpoint) (bool, error) {
-	var pod corev1.Pod
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      backup.Spec.PodRef.Name,
-		Namespace: backup.Spec.PodRef.Namespace,
-	}, &pod); err != nil {
-		if errors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-
-	return pod.Spec.NodeName == r.NodeName, nil
-}
-
 // reconcileNormal handles the normal reconciliation logic
 func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL, nodeName string, restConfig *rest.Config) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -548,7 +530,7 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 		if err := r.checkpointContainer(ctx, backup, &pod, container, kubeletURL, nodeName, restConfig); err != nil {
 			log.Error(err, "Failed to checkpoint container", "container", container.Name)
 			backup.Status.OriginalImage = container.Image
-			backup.Status.LastCheckpointTime.Time = time.Time{}
+			backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 			backup.Status.Phase = transitionv1.CheckpointPhaseFailed
 			backup.Status.Message = fmt.Sprintf("Failed to update backup status with image name: %v", err)
 
@@ -579,7 +561,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	log.Info("Checkpointing container", "container", container.Name, "pod", pod.Name)
 
 	backup.Status.OriginalImage = container.Image
-	backup.Status.LastCheckpointTime.Time = time.Time{}
+	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 	backup.Status.Phase = transitionv1.CheckpointPhaseRunning
 	backup.Status.Message = fmt.Sprintf("Starting checkpoint for container %s", container.Name)
 
@@ -592,7 +574,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	checkpointPath, err := r.KubeletClient.CreateCheckpoint(ctx, restConfig, nodeName, backup.Spec.PodRef.Namespace, backup.Spec.PodRef.Name, container.Name, kubeletURL)
 	if err != nil {
 		backup.Status.OriginalImage = container.Image
-		backup.Status.LastCheckpointTime.Time = time.Time{}
+		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 		backup.Status.Phase = transitionv1.CheckpointPhaseFailed
 		backup.Status.Message = fmt.Sprintf("Failed to update backup status with image name: %v", err)
 
@@ -603,7 +585,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 		return fmt.Errorf("failed to create checkpoint via kubelet API: %w", err)
 	}
 
-	log.Info("Checkpoint created", "checkpointPath", checkpointPath)
+	// log.Info("Checkpoint created", "checkpointPath", checkpointPath)
 
 	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", container.Image)
 
@@ -616,7 +598,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	if err := miniohelper.WaitForFileInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath, 30*time.Second, 500*time.Millisecond); err != nil {
 		log.Info("File did not appear in MinIO in time: %v", err)
 		backup.Status.OriginalImage = container.Image
-		backup.Status.LastCheckpointTime.Time = time.Time{}
+		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 		backup.Status.Phase = transitionv1.CheckpointPhaseFailed
 		backup.Status.Message = fmt.Sprintf("Failed to update backup status with image name: %v", err)
 
@@ -638,7 +620,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	if err != nil {
 		log.Error(err, "Failed to download file from MinIO")
 		backup.Status.OriginalImage = container.Image
-		backup.Status.LastCheckpointTime.Time = time.Time{}
+		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 		backup.Status.Phase = transitionv1.CheckpointPhaseFailed
 		backup.Status.Message = fmt.Sprintf("Failed to update backup status with image name: %v", err)
 
@@ -656,7 +638,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	if err := r.buildCheckpointImage(checkpointPath, imageName, baseImage, container.Name); err != nil {
 		log.Error(err, "Failed to build checkpoint image")
 		backup.Status.OriginalImage = container.Image
-		backup.Status.LastCheckpointTime.Time = time.Time{}
+		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 		backup.Status.Phase = transitionv1.CheckpointPhaseFailed
 		backup.Status.Message = fmt.Sprintf("Failed to update backup status with image name: %v", err)
 
@@ -671,7 +653,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	if err := r.RegistryClient.PushImage(imageName); err != nil {
 		log.Error(err, "Failed to push checkpoint image to registry")
 		backup.Status.OriginalImage = container.Image
-		backup.Status.LastCheckpointTime.Time = time.Time{}
+		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 		backup.Status.Phase = transitionv1.CheckpointPhaseFailed
 		backup.Status.Message = fmt.Sprintf("Failed to update backup status with image name: %v", err)
 
@@ -685,7 +667,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	// Step 5: Update status with image name
 	backup.Status.LastCheckpointImage = imageName
 	backup.Status.OriginalImage = container.Image
-	backup.Status.LastCheckpointTime.Time = time.Time{}
+	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 	backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
 
 	if err := r.Status().Update(ctx, backup); err != nil {
@@ -693,7 +675,20 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 		return err
 	}
 
-	log.Info("File already exists in MinIO, triggering restoration on another cluster", "file", checkpointPath)
+	//remove the downloaded checkpoint file to save space
+	if err := os.Remove(checkpointPath); err != nil {
+		log.Error(err, "Failed to remove downloaded checkpoint file", "file", checkpointPath)
+		// Not a fatal error, just log
+	}
+
+	//delete local image to save space
+	err = r.DeleteBuildImage(imageName)
+	if err != nil {
+		log.Error(err, "Failed to delete local image", "image", imageName)
+		// Not a fatal error, just log
+	}
+
+	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", imageName)
 
 	return nil
 }
@@ -744,7 +739,7 @@ func (kc *KubeletClient) CreateCheckpoint(ctx context.Context, restConfig *rest.
 		return "", fmt.Errorf("failed to read checkpoint response body: %w", err)
 	}
 
-	fmt.Printf("DEBUG ERROR: Kubelet checkpoint API response body: %s\n", string(body))
+	// fmt.Printf("DEBUG ERROR: Kubelet checkpoint API response body: %s\n", string(body))
 
 	var checkpointResp CheckpointResponse
 	if err := json.Unmarshal(body, &checkpointResp); err != nil {
@@ -755,70 +750,10 @@ func (kc *KubeletClient) CreateCheckpoint(ctx context.Context, restConfig *rest.
 		return "", fmt.Errorf("checkpoint API returned no items")
 	}
 
-	fmt.Printf("DEBUG ERROR: FILENAME: %s\n", checkpointResp.Items[0])
+	// fmt.Printf("DEBUG ERROR: FILENAME: %s\n", checkpointResp.Items[0])
 
 	return checkpointResp.Items[0], nil
 
-}
-
-// findCheckpointFile finds the most recent checkpoint file for a given pod and container
-func (r *CheckpointReconciler) findCheckpointFile(namespace, podName, containerName, expectedPath string) (string, error) {
-	// First try the expected path
-	fullExpectedPath := filepath.Join(CheckpointBasePath, expectedPath)
-	if _, err := os.Stat(fullExpectedPath); err == nil {
-		return expectedPath, nil
-	}
-
-	// If expected path doesn't exist, search for checkpoint files matching the pattern
-	podFullName := fmt.Sprintf("%s_%s", namespace, podName)
-	pattern := fmt.Sprintf("checkpoint-%s-%s-*.tar", podFullName, containerName)
-	fullPattern := filepath.Join(CheckpointBasePath, pattern)
-
-	fmt.Printf("DEBUG: Searching for checkpoint files with pattern: %s\n", fullPattern)
-	matches, err := filepath.Glob(fullPattern)
-	if err != nil {
-		return "", fmt.Errorf("failed to search for checkpoint files with pattern %s: %w", pattern, err)
-	}
-	fmt.Printf("DEBUG: Found %d matching files: %v\n", len(matches), matches)
-
-	if len(matches) == 0 {
-		// List all files in checkpoint directory for debugging
-		files, _ := os.ReadDir(CheckpointBasePath)
-		var fileNames []string
-		for _, file := range files {
-			fileNames = append(fileNames, file.Name())
-		}
-		return "", fmt.Errorf("no checkpoint files found for pattern %s. Available files: %v", pattern, fileNames)
-	}
-
-	// Sort matches to get the most recent file (files are naturally sorted by timestamp)
-	// Find the most recent file (look for files created in the last few seconds)
-	var mostRecentFile string
-	var mostRecentTime time.Time
-
-	now := time.Now()
-	for _, match := range matches {
-		info, err := os.Stat(match)
-		if err != nil {
-			continue
-		}
-
-		// Only consider files created in the last 30 seconds (recent checkpoint)
-		if now.Sub(info.ModTime()) < 30*time.Second {
-			if info.ModTime().After(mostRecentTime) {
-				mostRecentTime = info.ModTime()
-				mostRecentFile = match
-			}
-		}
-	}
-
-	if mostRecentFile == "" {
-		// If no recent file found, use the lexicographically last one (likely most recent by timestamp)
-		mostRecentFile = matches[len(matches)-1]
-	}
-
-	relativePath, _ := filepath.Rel(CheckpointBasePath, mostRecentFile)
-	return relativePath, nil
 }
 
 // buildCheckpointImage builds the checkpoint image using buildah
@@ -906,6 +841,16 @@ func (rc *RegistryClient) login(imageName string) error {
 	cmd := exec.Command("buildah", "login", "-u", "vitu1", "-p", "dckr_pat_6dfNrJ77W6R7W4cOVzi_u_FkKec", rc.registry)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to login to registry %s: %w", rc.registry, err)
+	}
+
+	return nil
+}
+
+func (r *CheckpointReconciler) DeleteBuildImage(imageName string) error {
+	// Delete image using buildah
+	cmd := exec.Command("buildah", "rmi", imageName)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to delete image %s: %w", imageName, err)
 	}
 
 	return nil
