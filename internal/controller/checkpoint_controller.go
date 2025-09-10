@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha1"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -159,7 +161,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Get workload cluster client
-	clusterResult, workloadClusterClient, restConfig, err := r.getWorkloadClient(ctx, Checkpoint)
+	clusterResult, workloadClusterClient, restConfig, err := r.getWorkloadClient(ctx, Checkpoint.Spec.ClusterRef.Name)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "checkpoint", Checkpoint.Name)
 		return clusterResult, err
@@ -230,7 +232,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 // getWorkloadClient is a helper function to get the workload cluster client
 func (r *CheckpointReconciler) getWorkloadClient(
 	ctx context.Context,
-	checkpoint transitionv1.Checkpoint,
+	clusterName string,
 ) (ctrl.Result, client.Client, *rest.Config, error) {
 	log := logf.FromContext(ctx)
 	clusterList := &capiv1beta1.ClusterList{}
@@ -240,10 +242,10 @@ func (r *CheckpointReconciler) getWorkloadClient(
 
 	var capiCluster *capictrl.Capi
 	for _, workload_cluster := range clusterList.Items {
-		if checkpoint.Spec.ClusterRef.Name == workload_cluster.Name {
+		if clusterName == workload_cluster.Name {
 			var err error
 			capiCluster, err = capictrl.GetCapiClusterFromName(
-				ctx, checkpoint.Spec.ClusterRef.Name, "default", r.Client,
+				ctx, clusterName, "default", r.Client,
 			)
 			if err != nil {
 				log.Error(err, "Failed to get CAPI cluster")
@@ -256,7 +258,7 @@ func (r *CheckpointReconciler) getWorkloadClient(
 	if capiCluster == nil {
 		return ctrl.Result{}, nil, nil, fmt.Errorf(
 			"no matching cluster found for %s",
-			checkpoint.Spec.ClusterRef.Name,
+			clusterName,
 		)
 	}
 
@@ -666,6 +668,13 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 		return err
 	}
 
+	//predownload images to the target cluster nodes
+	err = r.PreDownloadImageToTargetCluster(ctx, imageName, container.Image, *backup)
+	if err != nil {
+		log.Error(err, "Failed to predownload image to all nodes on the target cluster", "image", imageName)
+		// Not a fatal error, just log
+	}
+
 	// Step 5: Update status with image name
 	backup.Status.LastCheckpointImage = imageName
 	backup.Status.OriginalImage = container.Image
@@ -822,7 +831,7 @@ func (r *CheckpointReconciler) buildCheckpointImage(checkpointPath, imageName, b
 // PushImage pushes the image to the registry
 func (rc *RegistryClient) PushImage(imageName string) error {
 	// Login to registry
-	if err := rc.login(imageName); err != nil {
+	if err := rc.login(); err != nil {
 		return fmt.Errorf("failed to login to registry: %w", err)
 	}
 
@@ -836,7 +845,7 @@ func (rc *RegistryClient) PushImage(imageName string) error {
 }
 
 // login performs registry authentication
-func (rc *RegistryClient) login(imageName string) error {
+func (rc *RegistryClient) login() error {
 	// Use the registry URL from the secret (not extracted from image name)
 	// For Docker Hub, this should be "docker.io" or can be empty
 
@@ -857,6 +866,249 @@ func (r *CheckpointReconciler) DeleteBuildImage(imageName string) error {
 	}
 
 	return nil
+}
+
+// PreDownloadImageToTargetCluster pre-downloads the image to all nodes in the target cluster to avoid pull delays during recovery
+func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Context, checkpointImage, originalImage string, checkpoint transitionv1.Checkpoint) error {
+	log := logf.FromContext(ctx)
+	log.Info("Pre-downloading image to target cluster nodes", "image", checkpointImage, "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
+
+	// Get target cluster client
+	clusterResult, targetClusterClient, _, err := r.getWorkloadClient(ctx, checkpoint.Spec.TargetClusterRef.Name)
+	if err != nil {
+		log.Error(err, "Failed to get target cluster client", "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
+		return err
+	}
+	if targetClusterClient == nil {
+		log.Info("Target cluster client not available yet", "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
+		return fmt.Errorf("target cluster client not available yet: %v", clusterResult)
+	}
+
+	// List all nodes in target cluster
+	var nodeList corev1.NodeList
+	if err := targetClusterClient.List(ctx, &nodeList); err != nil {
+		return fmt.Errorf("failed to list nodes in target cluster: %w", err)
+	}
+
+	// For each node, create a Pod that pulls the image
+	for _, node := range nodeList.Items {
+
+		//if control-plane node, skip
+		if _, isControlPlane := node.Labels["node-role.kubernetes.io/control-plane"]; isControlPlane {
+			log.Info("Skipping control-plane node", "node", node.Name)
+			continue
+		}
+
+		namePart := sanitizeName(checkpointImage)
+		maxLen := 50
+		if len(namePart) > maxLen {
+			h := sha1.Sum([]byte(namePart))
+			namePart = namePart[:maxLen-8] + fmt.Sprintf("-%x", h)[:8]
+		}
+		podName := fmt.Sprintf("prepull-checkpoint-image-%s-%s", namePart, node.Name)
+
+		var existingPod corev1.Pod
+		err := targetClusterClient.Get(ctx, types.NamespacedName{
+			Name:      podName,
+			Namespace: "default",
+		}, &existingPod)
+		if err == nil {
+			// Pod exists, delete it
+			if err := targetClusterClient.Delete(ctx, &existingPod); err != nil {
+				log.Error(err, "Failed to delete existing pre-pull pod", "pod", podName, "node", node.Name)
+				return fmt.Errorf("failed to delete existing pre-pull pod %s: %w", podName, err)
+			}
+			log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
+			// Wait a bit for deletion to complete
+			time.Sleep(5 * time.Second)
+		} else if !errors.IsNotFound(err) {
+			//
+			log.Error(err, "Failed to check for existing pre-pull pod", "pod", podName, "node", node.Name)
+			return fmt.Errorf("failed to check for existing pre-pull pod %s: %w", podName, err)
+		}
+
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      podName,
+				Namespace: "default",
+			},
+			Spec: corev1.PodSpec{
+				NodeName:      node.Name,
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name:            "prepull",
+						Image:           checkpointImage,
+						Command:         []string{"sleep", "30"}, // Sleep to keep the pod alive for a short time
+						ImagePullPolicy: corev1.PullAlways,
+					},
+				},
+			},
+		}
+
+		// Create the Pod
+		if err := targetClusterClient.Create(ctx, pod); err != nil {
+			if !errors.IsAlreadyExists(err) {
+				log.Error(err, "Failed to create pre-pull pod", "pod", podName, "node", node.Name)
+				return fmt.Errorf("failed to create pre-pull pod %s: %w", podName, err)
+			}
+		}
+
+		log.Info("Created pre-pull pod", "pod", podName, "node", node.Name)
+
+		// Optionally, wait for the Pod to complete and then delete it or delete once image is pulled
+
+		go func(podName string) {
+			defer func() {
+				podToDelete := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      podName,
+						Namespace: "default",
+					},
+				}
+				if err := targetClusterClient.Delete(context.Background(), podToDelete); err != nil {
+					log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
+				} else {
+					log.Info("Deleted pre-pull pod", "pod", podName)
+				}
+			}()
+
+			// Wait for Pod to complete
+			for {
+				time.Sleep(5 * time.Second)
+				var currentPod corev1.Pod
+				if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
+					Name:      podName,
+					Namespace: "default",
+				}, &currentPod); err != nil {
+					log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
+					return
+				}
+				if currentPod.Status.Phase == corev1.PodSucceeded || currentPod.Status.Phase == corev1.PodFailed {
+					log.Info("Pre-pull pod completed", "pod", podName, "phase", currentPod.Status.Phase)
+					return
+				}
+			}
+		}(podName)
+	}
+
+	// do the same for the original image to ensure it's also pre-pulled
+	if originalImage != "" && originalImage != checkpointImage {
+		log.Info("Also pre-downloading original image to target cluster nodes", "image", originalImage, "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
+
+		for _, node := range nodeList.Items {
+
+			//if control-plane node, skip
+			if _, isControlPlane := node.Labels["node-role.kubernetes.io/control-plane"]; isControlPlane {
+				log.Info("Skipping control-plane node", "node", node.Name)
+				continue
+			}
+
+			namePart := sanitizeName(originalImage)
+			maxLen := 50
+			if len(namePart) > maxLen {
+				h := sha1.Sum([]byte(namePart))
+				namePart = namePart[:maxLen-8] + fmt.Sprintf("-%x", h)[:8]
+			}
+
+			// if pod already exists, delete it first
+			podName := fmt.Sprintf("prepull-original-image-%s-%s", namePart, node.Name)
+			var existingPod corev1.Pod
+			err := targetClusterClient.Get(ctx, types.NamespacedName{
+				Name:      podName,
+				Namespace: "default",
+			}, &existingPod)
+			if err == nil {
+				// Pod exists, delete it
+				if err := targetClusterClient.Delete(ctx, &existingPod); err != nil {
+					log.Error(err, "Failed to delete existing pre-pull pod", "pod", podName, "node", node.Name)
+					return fmt.Errorf("failed to delete existing pre-pull pod %s: %w", podName, err)
+				}
+				log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
+				// Wait a bit for deletion to complete
+				time.Sleep(5 * time.Second)
+			} else if !errors.IsNotFound(err) {
+				//
+				log.Error(err, "Failed to check for existing pre-pull pod", "pod", podName, "node", node.Name)
+				return fmt.Errorf("failed to check for existing pre-pull pod %s: %w", podName, err)
+			}
+
+			pod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: "default",
+				},
+				Spec: corev1.PodSpec{
+					NodeName:      node.Name,
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:    "prepull",
+							Image:   originalImage,
+							Command: []string{"sleep", "30"}, // Sleep to keep the pod alive for a short time
+							// ImagePullPolicy: corev1.PullAlways,
+						},
+					},
+				},
+			}
+
+			// Create the Pod
+			if err := targetClusterClient.Create(ctx, pod); err != nil {
+				if !errors.IsAlreadyExists(err) {
+					log.Error(err, "Failed to create pre-pull original pod image", "pod", podName, "node", node.Name)
+					return fmt.Errorf("failed to create pre-pull original pod image %s: %w", podName, err)
+				}
+			}
+
+			log.Info("Created pre-pull original pod image", "pod", podName, "node", node.Name)
+
+			// Optionally, wait for the Pod to complete and then delete it
+			go func(podName string) {
+				defer func() {
+					podToDelete := &corev1.Pod{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      podName,
+							Namespace: "default",
+						},
+					}
+					if err := targetClusterClient.Delete(context.Background(), podToDelete); err != nil {
+						log.Error(err, "Failed to delete pre-pull original pod image", "pod", podName)
+					} else {
+						log.Info("Deleted pre-pull original pod image", "pod", podName)
+					}
+				}()
+
+				// Wait for Pod to complete
+				for {
+					time.Sleep(5 * time.Second)
+					var currentPod corev1.Pod
+					if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
+						Name:      podName,
+						Namespace: "default",
+					}, &currentPod); err != nil {
+						log.Error(err, "Failed to get pre-pull original pod  image status", "pod", podName)
+						return
+					}
+					if currentPod.Status.Phase == corev1.PodSucceeded || currentPod.Status.Phase == corev1.PodFailed {
+						log.Info("Pre-pull original pod image completed", "pod", podName, "phase", currentPod.Status.Phase)
+						return
+					}
+				}
+			}(podName)
+		}
+	}
+
+	return nil
+}
+
+func sanitizeName(s string) string {
+	// Replace any invalid character with '-'
+	re := regexp.MustCompile(`[^a-z0-9-.]`)
+	s = strings.ToLower(s)
+	s = re.ReplaceAllString(s, "-")
+	// Trim leading/trailing '-'
+	s = strings.Trim(s, "-")
+	return s
 }
 
 // SetupWithManager sets up the controller with the Manager.

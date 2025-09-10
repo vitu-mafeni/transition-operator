@@ -44,6 +44,8 @@ spec:
                   name:
                     description: Name of the referenced cluster
                     type: string
+                  repository:
+                    type: string
                 required:
                 - name
                 type: object
@@ -127,6 +129,16 @@ spec:
                   foo is an example field of Checkpoint. Edit checkpoint_types.go to remove/update
                   Schedule specifies the backup schedule in cron format
                 type: string
+              targetClusterRef:
+                properties:
+                  name:
+                    description: Name of the referenced cluster
+                    type: string
+                  repository:
+                    type: string
+                required:
+                - name
+                type: object
             required:
             - podRef
             - registry

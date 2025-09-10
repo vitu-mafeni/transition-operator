@@ -110,7 +110,8 @@ type CheckpointSpec struct {
 	// +required
 	Schedule string `json:"schedule"`
 
-	ClusterRef *ClusterRef `json:"clusterRef,omitempty"`
+	ClusterRef       *ClusterRef `json:"clusterRef,omitempty"`
+	TargetClusterRef *ClusterRef `json:"targetClusterRef,omitempty"`
 
 	// PodRef specifies the pod to checkpoint
 	// +required
@@ -131,7 +132,8 @@ type CheckpointSpec struct {
 type ClusterRef struct {
 	// Name of the referenced cluster
 	// +required
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	Repository string `json:"repository,omitempty"`
 }
 
 // CheckpointPhase represents the phase of the checkpoint backup operation

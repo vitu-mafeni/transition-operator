@@ -122,6 +122,11 @@ func (in *CheckpointSpec) DeepCopyInto(out *CheckpointSpec) {
 		*out = new(ClusterRef)
 		**out = **in
 	}
+	if in.TargetClusterRef != nil {
+		in, out := &in.TargetClusterRef, &out.TargetClusterRef
+		*out = new(ClusterRef)
+		**out = **in
+	}
 	out.PodRef = in.PodRef
 	out.ResourceRef = in.ResourceRef
 	in.Registry.DeepCopyInto(&out.Registry)

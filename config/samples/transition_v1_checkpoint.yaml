@@ -8,8 +8,14 @@ metadata:
 spec:
   clusterRef:
     name: cluster1-capo
+    repository: http://13.214.181.179:30343/nephio/cluster1-aws.git
+  containers:
+  - image: registry.mydomain.com/lehuannhatrang/checkpoints:app-container
+    name: app-container
+  - image: registry.mydomain.com/lehuannhatrang/checkpoints:sidecar-container
+    name: sidecar-container
   podRef:
-    name: test-pod
+    name: video
     namespace: default
   registry:
     repository: vitu1
@@ -23,3 +29,5 @@ spec:
     name: my-app
     namespace: default
   schedule: 0/1 * * * *
+  targetClusterRef:
+    name: migrationdev
