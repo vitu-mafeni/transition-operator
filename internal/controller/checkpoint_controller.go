@@ -39,7 +39,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/pointer"
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -48,6 +47,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/robfig/cron/v3"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
+	"github.com/vitu1234/transition-operator/reconcilers/capi"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	"github.com/vitu1234/transition-operator/reconcilers/miniohelper"
 )
@@ -161,7 +161,7 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	// Get workload cluster client
-	clusterResult, workloadClusterClient, restConfig, err := r.getWorkloadClient(ctx, Checkpoint.Spec.ClusterRef.Name)
+	clusterResult, workloadClusterClient, restConfig, err := capi.GetWorkloadClusterClient(ctx, r.Client, Checkpoint.Spec.ClusterRef.Name)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "checkpoint", Checkpoint.Name)
 		return clusterResult, err
@@ -227,55 +227,6 @@ func (r *CheckpointReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	// Handle normal reconciliation
 	return r.reconcileNormal(ctx, workloadClusterClient, &Checkpoint, nodeKubeletURL, nodeName, restConfig)
 
-}
-
-// getWorkloadClient is a helper function to get the workload cluster client
-func (r *CheckpointReconciler) getWorkloadClient(
-	ctx context.Context,
-	clusterName string,
-) (ctrl.Result, client.Client, *rest.Config, error) {
-	log := logf.FromContext(ctx)
-	clusterList := &capiv1beta1.ClusterList{}
-	if err := r.Client.List(ctx, clusterList); err != nil {
-		return ctrl.Result{}, nil, nil, err
-	}
-
-	var capiCluster *capictrl.Capi
-	for _, workload_cluster := range clusterList.Items {
-		if clusterName == workload_cluster.Name {
-			var err error
-			capiCluster, err = capictrl.GetCapiClusterFromName(
-				ctx, clusterName, "default", r.Client,
-			)
-			if err != nil {
-				log.Error(err, "Failed to get CAPI cluster")
-				return ctrl.Result{}, nil, nil, err
-			}
-			break
-		}
-	}
-
-	if capiCluster == nil {
-		return ctrl.Result{}, nil, nil, fmt.Errorf(
-			"no matching cluster found for %s",
-			clusterName,
-		)
-	}
-
-	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
-
-	clusterClient, restConfig, ready, err := capiCluster.GetClusterClient(ctx)
-	if err != nil {
-		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
-		// Requeue so we try again later
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
-	}
-	if !ready {
-		log.Info("Workload cluster not Ready yet, requeueing", "cluster", capiCluster.GetClusterName())
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
-	}
-
-	return ctrl.Result{}, clusterClient, restConfig, nil
 }
 
 // get kubelet token
@@ -883,7 +834,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 	log.Info("Pre-downloading image to target cluster nodes", "image", checkpointImage, "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
 
 	// Get target cluster client
-	clusterResult, targetClusterClient, _, err := r.getWorkloadClient(ctx, checkpoint.Spec.TargetClusterRef.Name)
+	clusterResult, targetClusterClient, _, err := capictrl.GetWorkloadClusterClient(ctx, r.Client, checkpoint.Spec.TargetClusterRef.Name)
 	if err != nil {
 		log.Error(err, "Failed to get target cluster client", "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
 		return err

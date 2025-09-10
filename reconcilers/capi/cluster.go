@@ -22,6 +22,12 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
+
+	// capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
@@ -208,3 +214,48 @@ func GetDefaultKubeScheme() *runtime.Scheme {
 }
 
 // NEW
+
+// GetWorkloadClusterClient returns a client + rest config for a workload cluster.
+func GetWorkloadClusterClient(
+	ctx context.Context,
+	c client.Client, // <— pass client explicitly instead of using r.Client
+	clusterName string,
+) (ctrl.Result, client.Client, *rest.Config, error) {
+	log := logf.FromContext(ctx)
+
+	clusterList := &capiv1beta1.ClusterList{}
+	if err := c.List(ctx, clusterList); err != nil {
+		return ctrl.Result{}, nil, nil, err
+	}
+
+	var capiCluster *Capi
+	for _, workloadCluster := range clusterList.Items {
+		if clusterName == workloadCluster.Name {
+			var err error
+			capiCluster, err = GetCapiClusterFromName(ctx, clusterName, "default", c)
+			if err != nil {
+				log.Error(err, "Failed to get CAPI cluster")
+				return ctrl.Result{}, nil, nil, err
+			}
+			break
+		}
+	}
+
+	if capiCluster == nil {
+		return ctrl.Result{}, nil, nil, fmt.Errorf("no matching cluster found for %s", clusterName)
+	}
+
+	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
+
+	clusterClient, restConfig, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
+	}
+	if !ready {
+		log.Info("Workload cluster not Ready yet, requeueing", "cluster", capiCluster.GetClusterName())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
+	}
+
+	return ctrl.Result{}, clusterClient, restConfig, nil
+}

@@ -40,8 +40,7 @@ import (
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	checkpointtransition "github.com/vitu1234/transition-operator/reconcilers/checkpoint_transition"
 	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
-	"github.com/vitu1234/transition-operator/reconcilers/helpers"
-	giteahelpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
+	helpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
 
 	velero "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
@@ -137,7 +136,7 @@ func (r *ClusterPolicyReconciler) CreateCheckpointForLiveStatePackage(ctx contex
 	for _, workload_cluster := range clusterList.Items {
 
 		if clusterPolicy.Spec.ClusterSelector.Name == workload_cluster.Name {
-			checkpointtransition.PerformWorkloadClusterCheckpointAction(ctx, pkg, &workload_cluster)
+			checkpointtransition.PerformWorkloadClusterCheckpointAction(ctx, r.Client, pkg, &workload_cluster)
 		}
 	}
 	return nil
@@ -404,10 +403,10 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 		return
 	}
 
-	giteahelpers.LogRepositories(log, repos)
+	helpers.LogRepositories(log, repos)
 	log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
-	targetRepoName, targetClusterName, found := giteahelpers.DetermineTargetRepo(clusterPolicy, log)
+	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
 		log.Info("No suitable target repository found; canceling transition")
 		return
@@ -526,7 +525,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 			return
 		}
 
-		_, err := giteahelpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, targetClusterClient, targetClusterName+"-dr")
+		_, err := helpers.CreateAndPushVeleroRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, targetClusterClient, targetClusterName+"-dr")
 		if err != nil {
 			log.Error(err, "Failed to push Velero manifest")
 			//add status that it failed to transition the package
@@ -546,7 +545,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 		message := "Transitioned stateful package successfully"
 
-		err = giteahelpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
+		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
 		if err != nil {
 			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
 			message += "; but the ArgoCD sync was not triggered successfully"
@@ -567,7 +566,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
-		err, _ := giteahelpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log)
+		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log)
 		if err != nil {
 			log.Error(err, "Failed to push ArgoCD app manifest")
 			//add status that it failed to transition the package
@@ -587,7 +586,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 		message := "Transitioned stateless package successfully"
 
-		err = giteahelpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
+		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
 		if err != nil {
 			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
 			message += "; but the ArgoCD sync was not triggered successfully"
@@ -634,7 +633,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 		processed := make(map[string]struct{}) // To avoid duplicate transitions
 
 		for _, pod := range podList.Items {
-			workloadKind, workloadName, ok := getWorkloadControllerInfo(pod)
+			workloadKind, workloadName, ok := helpers.GetWorkloadOwnerControllerInfo(pod)
 			if !ok {
 				log.Info("No controller owner reference found for pod", "pod", pod.Name)
 				continue
@@ -653,7 +652,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 				}
 
 				// Get Deployment owner
-				deployName, found := getControllerOwnerName(replicaSet.OwnerReferences, "Deployment")
+				deployName, found := helpers.GetWorkloadControllerOwnerName(replicaSet.OwnerReferences, "Deployment")
 				if !found {
 					log.Info("ReplicaSet has no Deployment owner", "replicaSet", replicaSet.Name)
 					continue
@@ -715,24 +714,6 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 	} else {
 		log.Info("Invalid or unspecified select mode; skipping policy application")
 	}
-}
-
-func getWorkloadControllerInfo(pod corev1.Pod) (kind string, name string, ok bool) {
-	for _, ref := range pod.OwnerReferences {
-		if ref.Controller != nil && *ref.Controller {
-			return ref.Kind, ref.Name, true
-		}
-	}
-	return "", "", false
-}
-
-func getControllerOwnerName(refs []metav1.OwnerReference, kind string) (string, bool) {
-	for _, ref := range refs {
-		if ref.Kind == kind && ref.Controller != nil && *ref.Controller {
-			return ref.Name, true
-		}
-	}
-	return "", false
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {
