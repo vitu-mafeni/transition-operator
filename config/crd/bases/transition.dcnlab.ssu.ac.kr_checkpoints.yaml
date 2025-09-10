@@ -204,6 +204,10 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastCheckpointImage:
+                description: LastCheckpointImage is the image name of the last created
+                  checkpoint
+                type: string
               lastCheckpointTime:
                 description: LastCheckpointTime represents the last time a checkpoint
                   was successfully created
@@ -218,6 +222,8 @@ spec:
                   recently observed CheckpointBackup
                 format: int64
                 type: integer
+              originalImage:
+                type: string
               phase:
                 description: Phase represents the current phase of the checkpoint
                   backup operation

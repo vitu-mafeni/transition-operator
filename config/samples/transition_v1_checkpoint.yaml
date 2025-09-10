@@ -22,7 +22,7 @@ spec:
       name: my-app
     # Registry setup
     registry:
-      url: registry.mydomain.com
+      url: docker.io
       repository: vitu1/checkpoints
       secretRef:
         name: reg-credentials

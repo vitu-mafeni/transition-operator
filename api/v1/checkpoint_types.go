@@ -134,6 +134,16 @@ type ClusterRef struct {
 	Name string `json:"name"`
 }
 
+// CheckpointPhase represents the phase of the checkpoint backup operation
+type CheckpointPhase string
+
+const (
+	CheckpointPhasePending   CheckpointPhase = "Pending"
+	CheckpointPhaseRunning   CheckpointPhase = "Running"
+	CheckpointPhaseCompleted CheckpointPhase = "Completed"
+	CheckpointPhaseFailed    CheckpointPhase = "Failed"
+)
+
 // CheckpointStatus defines the observed state of Checkpoint.
 type CheckpointStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
@@ -141,7 +151,7 @@ type CheckpointStatus struct {
 
 	// Phase represents the current phase of the checkpoint backup operation
 	// +optional
-	Phase string `json:"phase,omitempty"`
+	Phase CheckpointPhase `json:"phase,omitempty"`
 
 	// LastCheckpointTime represents the last time a checkpoint was successfully created
 	// +optional
@@ -154,6 +164,12 @@ type CheckpointStatus struct {
 	// ObservedGeneration reflects the generation of the most recently observed CheckpointBackup
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// LastCheckpointImage is the image name of the last created checkpoint
+	// +optional
+	LastCheckpointImage string `json:"lastCheckpointImage,omitempty"`
+	OriginalImage       string `json:"originalImage,omitempty"`
+
+	// Conditions represent the latest available observations of the Checkpoint's state.
 
 	// For Kubernetes API conventions, see:
 	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
