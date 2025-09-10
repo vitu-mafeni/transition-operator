@@ -668,13 +668,6 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 		return err
 	}
 
-	//predownload images to the target cluster nodes
-	err = r.PreDownloadImageToTargetCluster(ctx, imageName, container.Image, *backup)
-	if err != nil {
-		log.Error(err, "Failed to predownload image to all nodes on the target cluster", "image", imageName)
-		// Not a fatal error, just log
-	}
-
 	// Step 5: Update status with image name
 	backup.Status.LastCheckpointImage = imageName
 	backup.Status.OriginalImage = container.Image
@@ -685,6 +678,13 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	if err := r.Status().Update(ctx, backup); err != nil {
 		log.Error(err, "Failed to update backup status with image name")
 		return err
+	}
+
+	//predownload images to the target cluster nodes
+	err = r.PreDownloadImageToTargetCluster(ctx, imageName, container.Image, *backup)
+	if err != nil {
+		log.Error(err, "Failed to predownload image to all nodes on the target cluster", "image", imageName)
+		// Not a fatal error, just log
 	}
 
 	//remove the downloaded checkpoint file to save space
@@ -1080,7 +1080,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 
 				// Wait for Pod to complete
 				for {
-					time.Sleep(5 * time.Second)
+					time.Sleep(3 * time.Second)
 					var currentPod corev1.Pod
 					if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 						Name:      podName,
