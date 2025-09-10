@@ -545,10 +545,10 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 	}
 
 	// Update status
-	// now := metav1.Now()
-	// backup.Status.LastCheckpointTime = &now
+	// backup.Status.OriginalImage = ""
+	// backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 	// backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
-	// backup.Status.LastCheckpointImage =
+	// backup.Status.LastCheckpointImage = ""
 	// backup.Status.Message = "Checkpoint completed successfully"
 	// if err := r.Status().Update(ctx, backup); err != nil {
 	// 	log.Error(err, "Failed to update backup status")
@@ -670,7 +670,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 
 	// Step 5: Update status with image name
 	backup.Status.LastCheckpointImage = imageName
-	backup.Status.OriginalImage = container.Image
+	backup.Status.OriginalImage = baseImage
 	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 	backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
 	backup.Status.Message = "Checkpoint completed successfully"
@@ -701,6 +701,15 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	}
 
 	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", imageName)
+	backup.Status.OriginalImage = baseImage
+	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
+	backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
+	backup.Status.LastCheckpointImage = imageName
+	backup.Status.Message = "Checkpoint completed successfully"
+	if err := r.Status().Update(ctx, backup); err != nil {
+		log.Error(err, "Failed to update backup status")
+		return err
+	}
 
 	return nil
 }
