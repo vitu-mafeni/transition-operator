@@ -920,7 +920,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 			}
 			log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
 			// Wait a bit for deletion to complete
-			time.Sleep(5 * time.Second)
+			time.Sleep(3 * time.Second)
 		} else if !errors.IsNotFound(err) {
 			//
 			log.Error(err, "Failed to check for existing pre-pull pod", "pod", podName, "node", node.Name)
@@ -975,7 +975,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 
 			// Wait for Pod to complete
 			for {
-				time.Sleep(5 * time.Second)
+				time.Sleep(3 * time.Second)
 				var currentPod corev1.Pod
 				if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 					Name:      podName,
@@ -1026,7 +1026,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 				}
 				log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
 				// Wait a bit for deletion to complete
-				time.Sleep(5 * time.Second)
+				time.Sleep(3 * time.Second)
 			} else if !errors.IsNotFound(err) {
 				//
 				log.Error(err, "Failed to check for existing pre-pull pod", "pod", podName, "node", node.Name)
