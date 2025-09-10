@@ -6,28 +6,20 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: checkpoint-sample
 spec:
-  # TODO(user): Add fields here
-    schedule: "0/1 * * * *" # Every 15 minutes
-    # Select Pod to checkpoint
-    clusterRef:
-      name: cluster1-capo
-    podRef:
+  clusterRef:
+    name: cluster1-capo
+  podRef:
+    name: test-pod
+    namespace: default
+  registry:
+    repository: vitu1
+    secretRef:
+      name: reg-credentials
       namespace: default
-      name: test-pod
-    # The Workload to migrate
-    resourceRef:
-      apiVersion: apps/v1
-      kind: Pod # Can be Pod, Deployment, or StatefulSet...
-      namespace: default
-      name: my-app
-    # Registry setup
-    registry:
-      url: docker.io
-      repository: vitu1/checkpoints
-      secretRef:
-        name: reg-credentials
-    containers:
-      - name: app-container
-        image: registry.mydomain.com/lehuannhatrang/checkpoints:app-container
-      - name: sidecar-container
-        image: registry.mydomain.com/lehuannhatrang/checkpoints:sidecar-container
+    url: docker.io
+  resourceRef:
+    apiVersion: apps/v1
+    kind: Pod
+    name: my-app
+    namespace: default
+  schedule: 0/1 * * * *

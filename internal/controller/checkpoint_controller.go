@@ -543,13 +543,15 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 	}
 
 	// Update status
-	now := metav1.Now()
-	backup.Status.LastCheckpointTime = &now
-	backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
-	if err := r.Status().Update(ctx, backup); err != nil {
-		log.Error(err, "Failed to update backup status")
-		return err
-	}
+	// now := metav1.Now()
+	// backup.Status.LastCheckpointTime = &now
+	// backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
+	// backup.Status.LastCheckpointImage =
+	// backup.Status.Message = "Checkpoint completed successfully"
+	// if err := r.Status().Update(ctx, backup); err != nil {
+	// 	log.Error(err, "Failed to update backup status")
+	// 	return err
+	// }
 
 	log.Info("Successfully completed checkpoint operation", "backup", backup.Name)
 	return nil
@@ -669,6 +671,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	backup.Status.OriginalImage = container.Image
 	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 	backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
+	backup.Status.Message = "Checkpoint completed successfully"
 
 	if err := r.Status().Update(ctx, backup); err != nil {
 		log.Error(err, "Failed to update backup status with image name")
@@ -796,13 +799,13 @@ func (r *CheckpointReconciler) buildCheckpointImage(checkpointPath, imageName, b
 
 	// Step 3: Add CRI-O checkpoint annotations
 	if err := exec.Command("buildah", "config",
-		"--annotation=io.kubernetes.cri-o.annotations.checkpoint.name="+imageName,
+		"--annotation=org.criu.checkpoint.container.name="+imageName,
 		newContainer).Run(); err != nil {
 		return fmt.Errorf("failed to add checkpoint name annotation: %w", err)
 	}
 
 	if err := exec.Command("buildah", "config",
-		"--annotation=io.kubernetes.cri-o.annotations.checkpoint.rootfsImageName="+baseImage,
+		"--annotation=org.criu.checkpoint.rootfsImageName="+baseImage,
 		newContainer).Run(); err != nil {
 		return fmt.Errorf("failed to add rootfs image annotation: %w", err)
 	}
