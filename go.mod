@@ -1,6 +1,6 @@
 module github.com/vitu1234/transition-operator
 
-go 1.24.4
+go 1.24.6
 
 require (
 	github.com/nephio-project/nephio/controllers/pkg v0.0.0-20250508061227-34f840f636b2
@@ -26,6 +26,8 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.7.1 // indirect
 	github.com/bombsimon/logrusr/v2 v2.0.1 // indirect
 	github.com/bradleyfalzon/ghinstallation/v2 v2.12.0 // indirect
+	github.com/casbin/casbin/v2 v2.102.0 // indirect
+	github.com/casbin/govaluate v1.2.0 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
@@ -110,7 +112,7 @@ require (
 	cel.dev/expr v0.19.1 // indirect
 	code.gitea.io/sdk/gitea v0.21.0
 	github.com/antlr4-go/antlr/v4 v4.13.0 // indirect
-	github.com/argoproj/argo-cd/v2 v2.12.12
+	github.com/argoproj/argo-cd/v2 v2.14.17
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

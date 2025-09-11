@@ -33,11 +33,16 @@ type ArgoAppSpec struct {
 
 			SyncOptions []string `yaml:"syncOptions"`
 		} `yaml:"syncPolicy"`
-		IgnoreDifferences []struct {
-			Group string `yaml:"group"`
-			Kind  string `yaml:"kind"`
-		} `yaml:"ignoreDifferences"`
+		IgnoreDifferences []IgnoreDifference `yaml:"ignoreDifferences"`
 	} `yaml:"spec"`
+}
+
+type IgnoreDifference struct {
+	Group        string   `yaml:"group"`
+	Kind         string   `yaml:"kind"`
+	Name         string   `yaml:"name,omitempty"`
+	Namespace    string   `yaml:"namespace,omitempty"`
+	JSONPointers []string `yaml:"jsonPointers,omitempty"`
 }
 
 var argoAppGVR = schema.GroupVersionKind{

@@ -86,28 +86,24 @@ func CreateAndPushArgoApp(
 	app.Spec.SyncPolicy.SyncOptions = []string{"CreateNamespace=true"}
 
 	// Correct placement of IgnoreDifferences
-	app.Spec.IgnoreDifferences = []struct {
-		Group string `yaml:"group"`
-		Kind  string `yaml:"kind"`
-	}{
+	app.Spec.IgnoreDifferences = []IgnoreDifference{
 		{Group: "fn.kpt.dev", Kind: "ApplyReplacements"},
 		{Group: "fn.kpt.dev", Kind: "StarlarkRun"},
 		{Group: "infra.nephio.org", Kind: "WorkloadCluster"}, // <-- Add this
 	}
 
 	//add more ignore differences if provided
-	// if len(ignoreDifferences) > 0 {
-	// 	for _, diff := range ignoreDifferences {
-	// 		app.Spec.IgnoreDifferences = append(app.Spec.IgnoreDifferences, struct {
-	// 			Group string `yaml:"group"`
-	// 			Kind  string `yaml:"kind"`
-	// 		}{
-	// 			Group: diff.Group,
-	// 			Kind:  diff.Kind,
-	// 		})
-	// 	}
-	// }
-
+	// Add more ignore differences if provided
+	if len(ignoreDifferences) > 0 {
+		for _, diff := range ignoreDifferences {
+			app.Spec.IgnoreDifferences = append(app.Spec.IgnoreDifferences, IgnoreDifference{
+				Group: diff.Group,
+				Kind:  diff.Kind,
+				Name:  diff.Name, // optional
+				// Namespace: diff.Namespace, // optional
+			})
+		}
+	}
 	yamlData, err := yaml.Marshal(app)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Argo application YAML: %w", err), ""
@@ -525,7 +521,7 @@ func buildCleanPodFromCheckpoint(cp *transitionv1.Checkpoint) map[string]interfa
 	for _, c := range cp.Spec.PodRef.ContainerRef.Containers {
 		cont := map[string]interface{}{
 			"name":  c.Name,
-			"image": c.Image,
+			"image": cp.Status.LastCheckpointImage,
 		}
 		if len(c.Args) > 0 {
 			cont["args"] = c.Args
