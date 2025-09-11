@@ -55,19 +55,9 @@ spec:
                 - repo
                 - repoType
                 type: object
-              packageRetentionPolicy:
-                description: PackageRetentionPolicy defines rules for source cleanup
-                  after transition
-                properties:
-                  deleteAfterTransition:
-                    type: boolean
-                  retainOnSource:
-                    type: boolean
-                required:
-                - deleteAfterTransition
-                - retainOnSource
-                type: object
               packageSelectors:
+                description: TransitionMode         string                 `json:"transitionMode"`
+                  // manual, automatic, or none
                 items:
                   description: PackageSelector defines individual package selection
                     criteria
@@ -81,12 +71,15 @@ spec:
                             type: string
                           name:
                             type: string
+                          schedulePeriod:
+                            type: string
                         required:
                         - backupType
                         - name
                         type: object
                       type: array
-                    livePackage:
+                    liveStatePackage:
+                      description: Selected          bool                `json:"selected"`
                       type: boolean
                     name:
                       type: string
@@ -96,21 +89,17 @@ spec:
                       description: PackageType defines the type of package (stateless
                         or stateful)
                       type: string
-                    selected:
-                      type: boolean
                   required:
                   - backupInformation
                   - name
                   - packagePath
                   - packageType
-                  - selected
                   type: object
                 type: array
               selectMode:
                 type: string
               targetClusterPolicy:
-                description: TargetClusterPolicy defines preferences and avoid rules
-                  for target clusters
+                description: PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
                 properties:
                   avoidClusters:
                     items:
@@ -151,12 +140,9 @@ spec:
                       type: object
                     type: array
                 type: object
-              transitionMode:
-                type: string
             required:
             - clusterSelector
             - selectMode
-            - transitionMode
             type: object
           status:
             properties:
@@ -183,12 +169,15 @@ spec:
                                   type: string
                                 name:
                                   type: string
+                                schedulePeriod:
+                                  type: string
                               required:
                               - backupType
                               - name
                               type: object
                             type: array
-                          livePackage:
+                          liveStatePackage:
+                            description: Selected          bool                `json:"selected"`
                             type: boolean
                           name:
                             type: string
@@ -198,14 +187,11 @@ spec:
                             description: PackageType defines the type of package (stateless
                               or stateful)
                             type: string
-                          selected:
-                            type: boolean
                         required:
                         - backupInformation
                         - name
                         - packagePath
                         - packageType
-                        - selected
                         type: object
                       type: array
                     packageTransitionCondition:

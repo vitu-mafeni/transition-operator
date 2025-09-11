@@ -136,7 +136,10 @@ func (r *ClusterPolicyReconciler) CreateCheckpointForLiveStatePackage(ctx contex
 	for _, workload_cluster := range clusterList.Items {
 
 		if clusterPolicy.Spec.ClusterSelector.Name == workload_cluster.Name {
-			checkpointtransition.PerformWorkloadClusterCheckpointAction(ctx, r.Client, pkg, &workload_cluster)
+			err := checkpointtransition.PerformWorkloadClusterCheckpointAction(ctx, r.Client, pkg, clusterPolicy, &workload_cluster)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -704,7 +707,13 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 					processed[key] = struct{}{}
 
 					log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
-					r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+					if transitionPackage.LiveStatePackage {
+						log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
+						r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+					} else {
+						r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+					}
+
 				}
 			}
 		}
@@ -714,6 +723,197 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 	} else {
 		log.Info("Invalid or unspecified select mode; skipping policy application")
 	}
+}
+
+func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
+	log := logf.FromContext(ctx)
+	log.Info("Transitioning Selected workload", "pod", pod.Name, "package", transitionPackage.Name)
+
+	apiClient := resource.NewAPIPatchingApplicator(r.Client)
+	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
+	if err != nil {
+		log.Error(err, "Failed to initialize Gitea client")
+		return
+	}
+	if !giteaClient.IsInitialized() {
+		log.Info("Gitea client not yet initialized, retrying later")
+		return
+	}
+
+	user, resp, err := giteaClient.GetMyUserInfo()
+	if err != nil {
+		log.Error(err, "Failed to get Gitea user info", "response", resp)
+		return
+	}
+	log.Info("Authenticated with Gitea", "username", user.UserName)
+
+	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
+	if sourceRepo == "" {
+		log.Info("ClusterPolicy does not specify source repo; skipping transition")
+		return
+	}
+
+	repos, resp, err := giteaClient.Get().ListMyRepos(gitea.ListReposOptions{})
+	if err != nil {
+		log.Error(err, "Failed to list Gitea repositories", "response", resp)
+		return
+	}
+	if len(repos) == 0 {
+		log.Info("No repositories found for user", "username", user.UserName)
+		return
+	}
+
+	var drRepo *gitea.Repository
+	for i := range repos {
+		if repos[i].Name == "dr" {
+			drRepo = repos[i]
+			break
+		}
+	}
+	if drRepo == nil {
+		log.Info("Repository named 'dr' not found; using last repository as fallback, skipping transition", clusterPolicy.Name)
+		// drRepo = repos[len(repos)-1]
+		return
+	}
+
+	helpers.LogRepositories(log, repos)
+	log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
+
+	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
+	if !found {
+		log.Info("No suitable target repository found; canceling transition")
+		return
+	}
+
+	_, err, targetClusterClient := r.GetWorkloadClusterClientByName(ctx, targetClusterName)
+	if err != nil {
+		log.Error(err, "Failed to get target workload cluster client", "cluster", targetClusterName)
+		return
+	}
+	associatedCheckpoint := transitionv1.Checkpoint{}
+
+	switch transitionPackage.PackageType {
+	case transitionv1.PackageTypeStateful:
+		log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
+
+		backupMatching := transitionv1.BackupInformation{}
+
+		for _, backup := range transitionPackage.BackupInformation {
+			switch backup.BackupType {
+			case transitionv1.BackupTypeSchedule:
+
+				checkpointName := fmt.Sprintf("checkpoint-%s-%s-%s", clusterPolicy.Name, pod.Name, transitionPackage.Name)
+				//get checkpoint
+				checkpoint := &transitionv1.Checkpoint{}
+				err := r.Client.Get(ctx, types.NamespacedName{Name: checkpointName, Namespace: "default"}, checkpoint)
+				if err != nil {
+					log.Error(err, "Failed to get checkpoint", "name", checkpointName)
+					return
+				}
+				if checkpoint.Status.LastCheckpointImage == "" {
+					log.Info("Checkpoint has no associated backup; cannot proceed with live state transition", "checkpoint", checkpointName)
+					return
+				}
+
+				associatedCheckpoint = *checkpoint
+
+			case transitionv1.BackupTypeManual:
+				// scheme := runtime.NewScheme()
+				// _ = velero.AddToScheme(scheme)
+				log.Info("Looking for stateful live manual backup - nothing yet", "name", backup.Name)
+
+			}
+		}
+
+		if associatedCheckpoint.Name == "" {
+			log.Error(err, "Failed to find a proper associated live backup - backup name cannot be empty")
+			return
+		}
+
+		_, err := helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, r.Client, targetClusterName+"-dr")
+		if err != nil {
+			log.Error(err, "Failed to push Velero manifest")
+			//add status that it failed to transition the package
+			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+				LastTransitionTime:         metav1.Now(),
+				PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
+				PackageTransitionMessage:   err.Error(),
+			})
+
+			if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+				log.Error(err, "Failed to update ClusterPolicy status after transition failure")
+				return
+			}
+			return
+		}
+
+		message := "Transitioned stateful package successfully"
+
+		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
+		if err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+			message += "; but the ArgoCD sync was not triggered successfully"
+		}
+		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+			LastTransitionTime:         metav1.Now(),
+			PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
+			PackageTransitionMessage:   message,
+		})
+
+		if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+			log.Error(err, "Failed to update ClusterPolicy status after successful stateful transition")
+			return
+		}
+		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
+		return
+
+	case transitionv1.PackageTypeStateless:
+		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
+		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log)
+		if err != nil {
+			log.Error(err, "Failed to push ArgoCD app manifest")
+			//add status that it failed to transition the package
+			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+				LastTransitionTime:         metav1.Now(),
+				PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
+				PackageTransitionMessage:   err.Error(),
+			})
+
+			if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+				log.Error(err, "Failed to update ClusterPolicy status after transition failure")
+				return
+			}
+			return
+		}
+
+		message := "Transitioned stateless package successfully"
+
+		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
+		if err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+			message += "; but the ArgoCD sync was not triggered successfully"
+		}
+		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+			LastTransitionTime:         metav1.Now(),
+			PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
+			PackageTransitionMessage:   message,
+		})
+
+		if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+			log.Error(err, "Failed to update ClusterPolicy status after successful transition")
+			return
+		}
+		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
+		return
+
+	default:
+		log.Info("Unknown package type; skipping transition", "package", transitionPackage.Name)
+	}
+
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {

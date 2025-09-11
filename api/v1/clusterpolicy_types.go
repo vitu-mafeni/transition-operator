@@ -62,12 +62,12 @@ type SelectMode string
 
 // ClusterPolicySpec defines the desired state of ClusterPolicy.
 type ClusterPolicySpec struct {
-	ClusterSelector        ClusterSelector        `json:"clusterSelector"`
-	SelectMode             SelectMode             `json:"selectMode"`     // specific, all, or none
-	TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
-	PackageSelectors       []PackageSelector      `json:"packageSelectors,omitempty"`
-	PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
-	TargetClusterPolicy    TargetClusterPolicy    `json:"targetClusterPolicy,omitempty"`
+	ClusterSelector ClusterSelector `json:"clusterSelector"`
+	SelectMode      SelectMode      `json:"selectMode"` // specific, all, or none
+	// TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
+	PackageSelectors []PackageSelector `json:"packageSelectors,omitempty"`
+	// PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
+	TargetClusterPolicy TargetClusterPolicy `json:"targetClusterPolicy,omitempty"`
 }
 
 // ClusterSelector specifies the source cluster
@@ -80,17 +80,18 @@ type ClusterSelector struct {
 
 // PackageSelector defines individual package selection criteria
 type PackageSelector struct {
-	Name              string              `json:"name"`
-	PackagePath       string              `json:"packagePath"`
-	PackageType       PackageType         `json:"packageType"` // e.g., stateful, stateless
-	Selected          bool                `json:"selected"`
+	Name        string      `json:"name"`
+	PackagePath string      `json:"packagePath"`
+	PackageType PackageType `json:"packageType"` // e.g., stateful, stateless
+	// Selected          bool                `json:"selected"`
 	LiveStatePackage  bool                `json:"liveStatePackage,omitempty"`
 	BackupInformation []BackupInformation `json:"backupInformation"`
 }
 
 type BackupInformation struct {
-	Name       string     `json:"name"`
-	BackupType BackupType `json:"backupType"`
+	Name           string     `json:"name"`
+	BackupType     BackupType `json:"backupType"`
+	SchedulePeriod string     `json:"schedulePeriod,omitempty"` // cron format, only for Schedule type
 }
 
 // PackageRetentionPolicy defines rules for source cleanup after transition

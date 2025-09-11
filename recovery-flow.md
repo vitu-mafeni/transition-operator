@@ -181,6 +181,15 @@ export  MINIO_BUCKET="checkpoints"
 
 apt-install buildah -y
 ```
+
+## Set docker registry environment variables
+```bash
+export REPOSITORY=vitu1
+export SECRET_NAME_REF=reg-credentials
+export SECRET_NAMESPACE_REF=default
+export REGISTRY_URL="docker.io"
+
+```
 ```text
 transition working - cilium CNI
 ```

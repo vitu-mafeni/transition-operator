@@ -243,7 +243,6 @@ func (in *ClusterPolicySpec) DeepCopyInto(out *ClusterPolicySpec) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	out.PackageRetentionPolicy = in.PackageRetentionPolicy
 	in.TargetClusterPolicy.DeepCopyInto(&out.TargetClusterPolicy)
 }
 

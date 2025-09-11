@@ -417,3 +417,102 @@ func waitForVeleroRestoreCompletion(k8sClient client.Client, restoreName, namesp
 		}
 	}
 }
+
+func CreateAndPushLiveStateBackupRestore(
+	ctx context.Context,
+	client *gitea.Client,
+	username, repoName, folder string,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	transitionPackage transitionv1.PackageSelector,
+	log logr.Logger,
+	backupInfo transitionv1.BackupInformation,
+	checkpoint transitionv1.Checkpoint,
+	TargetClusterk8sClient client.Client,
+	appName string,
+) (string, error) {
+
+	//create pod resource
+	pod := corev1.Pod{}
+	pod.Name = checkpoint.Spec.PodRef.Name
+	pod.Namespace = checkpoint.Spec.PodRef.Namespace
+	pod.Spec = corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name:  "pause",
+				Image: "k8s.gcr.io/pause:3.5",
+			},
+		},
+	}
+
+	// excludedResources := []string{"events.k8s.io", "nodes"}
+	includedNamespaces := []string{"*"}
+	itemOperationTimeout := "4h0m0s"
+
+	app := VeleroRestore{
+		APIVersion: "velero.io/v1",
+		Kind:       "Restore",
+	}
+
+	app.Metadata.Name = fmt.Sprintf("velero-%s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+	app.Metadata.Namespace = "velero"
+
+	app.Spec.BackupName = backupInfo.Name
+	// app.Spec.ExcludedResources = excludedResources
+	app.Spec.IncludedNamespaces = includedNamespaces
+	// app.Spec.IncludedResources = []string{"persistentvolumeclaims", "secrets", "configmaps"}
+	// app.Spec.ExcludedResources = []string{"deployments", "replicasets", "statefulsets", "daemonsets", "pods", "services", "ingresses", "networkpolicies", "horizontalpodautoscalers"}
+	app.Spec.PreserveNodePorts = true
+	// app.Spec.RestorePVs = true
+	app.Spec.ItemOperationTimeout = itemOperationTimeout
+
+	yamlData, err := yaml.Marshal(app)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal Velero restore YAML: %w", err)
+	}
+
+	timestamp := time.Now().Format("20060102-150405")
+	filename := fmt.Sprintf("%s/velero-restore-%s.yaml", folder, timestamp)
+	message := fmt.Sprintf("Velero restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+
+	encodedContent := base64.StdEncoding.EncodeToString(yamlData)
+
+	fileOpts := gitea.CreateFileOptions{
+		Content: encodedContent,
+		FileOptions: gitea.FileOptions{
+			Message:    message,
+			BranchName: "main",
+		},
+	}
+
+	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
+	if err != nil {
+		return "", fmt.Errorf("failed to create velero restore file in Gitea: %w", err)
+	}
+
+	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
+
+	err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName, "argocd")
+	if err != nil {
+		log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+		message += "; but the ArgoCD sync was not triggered successfully"
+	}
+
+	log.Info("DELAYING FOR 5 SECONDS", "repo", repoName, "file", filename)
+
+	//delay 5s and push argocd app to avoid overriding the configs from velero
+	// time.Sleep(5 * time.Second)
+
+	// Wait for restore completion instead of fixed delay
+	if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
+		return "", err
+	}
+
+	log.Info("Velero restore completed successfully, time to push argo app", "argoapp", repoName)
+
+	// we have to push argo app to the same folder
+	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
+	if err != nil {
+		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
+	}
+	return filename, nil
+}
