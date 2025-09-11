@@ -637,16 +637,13 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 		processed := make(map[string]struct{}) // To avoid duplicate transitions
 
 		for _, pod := range podList.Items {
-			workloadKind, workloadName, ok := helpers.GetWorkloadOwnerControllerInfo(pod)
-			if !ok {
-				log.Info("No controller owner reference found for pod", "pod", pod.Name)
-				continue
-			}
+			namespace := pod.Namespace
+			workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
+			workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
 
 			var annotations map[string]string
-			var namespace = pod.Namespace
-			var workloadID = fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
 
+			matched := false
 			for _, pkg := range clusterPolicy.Spec.PackageSelectors {
 				if len(pod.Annotations) > 0 {
 					annotations = pod.Annotations
@@ -670,10 +667,28 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 						} else {
 							r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
 						}
-
+						matched = true
+						log.Info("pod has annotations and matched -----------")
 						continue
 					}
 				}
+			}
+
+			if matched {
+				// Skip the switch and move on to next pod
+				continue
+			}
+
+			// --- Step 2: Parent workload annotations ---
+			if hasOwner {
+				parentAnnotations := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+				if parentAnnotations != nil {
+					annotations = parentAnnotations
+				}
+			}
+
+			if annotations == nil {
+				continue
 			}
 
 			switch workloadKind {
@@ -716,7 +731,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 				annotations = statefulSet.Annotations
 
 			default:
-				log.Info("Unsupported controller kind; skipping", "kind", workloadKind, "pod", pod.Name)
+				log.Info("Unsupported ddddd controller kind; skipping", "kind", workloadKind, "pod", pod.Name)
 				continue
 			}
 
@@ -757,7 +772,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 
 func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
 	log := logf.FromContext(ctx)
-	log.Info("Transitioning Selected workload", "pod", pod.Name, "package", transitionPackage.Name)
+	log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
 
 	apiClient := resource.NewAPIPatchingApplicator(r.Client)
 	giteaClient, err := giteaclient.GetClient(ctx, apiClient)

@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-
-	"k8s.io/apimachinery/pkg/types"
 
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capi "github.com/vitu1234/transition-operator/reconcilers/capi"
@@ -90,7 +87,7 @@ func PerformWorkloadClusterCheckpointAction(
 
 		// --- Step 2: Parent workload annotations ---
 		if hasOwner {
-			parentAnnotations := getParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
+			parentAnnotations := helpers.GetParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
 			if parentAnnotations != nil {
 				annotations = parentAnnotations
 			}
@@ -127,60 +124,6 @@ func PerformWorkloadClusterCheckpointAction(
 
 			continue
 		}
-	}
-
-	return nil
-}
-
-// helper function to get parent workload annotations
-func getParentAnnotations(
-	ctx context.Context,
-	c client.Client,
-	kind, name, namespace string,
-) map[string]string {
-
-	log := logf.FromContext(ctx)
-	switch kind {
-	case "ReplicaSet":
-		rs := &appsv1.ReplicaSet{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, rs); err != nil {
-			log.Error(err, "Failed to get ReplicaSet", "name", name)
-			return nil
-		}
-		deployName, found := helpers.GetWorkloadControllerOwnerName(rs.OwnerReferences, "Deployment")
-		if !found {
-			return rs.Annotations
-		}
-		deploy := &appsv1.Deployment{}
-		if err := c.Get(ctx, types.NamespacedName{Name: deployName, Namespace: namespace}, deploy); err != nil {
-			log.Error(err, "Failed to get Deployment", "name", deployName)
-			return rs.Annotations
-		}
-		return deploy.Annotations
-
-	case "Deployment":
-		deploy := &appsv1.Deployment{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, deploy); err != nil {
-			log.Error(err, "Failed to get Deployment", "name", name)
-			return nil
-		}
-		return deploy.Annotations
-
-	case "DaemonSet":
-		ds := &appsv1.DaemonSet{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ds); err != nil {
-			log.Error(err, "Failed to get DaemonSet", "name", name)
-			return nil
-		}
-		return ds.Annotations
-
-	case "StatefulSet":
-		ss := &appsv1.StatefulSet{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ss); err != nil {
-			log.Error(err, "Failed to get StatefulSet", "name", name)
-			return nil
-		}
-		return ss.Annotations
 	}
 
 	return nil
