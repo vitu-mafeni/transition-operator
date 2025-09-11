@@ -647,6 +647,35 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 			var namespace = pod.Namespace
 			var workloadID = fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
 
+			for _, pkg := range clusterPolicy.Spec.PackageSelectors {
+				if len(pod.Annotations) > 0 {
+					annotations = pod.Annotations
+					if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+						annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+
+						key := fmt.Sprintf("%s/%s/%s", namespace, pod.Name, pkg.Name) // pod-level dedup
+						if _, seen := processed[key]; seen {
+							continue
+						}
+						processed[key] = struct{}{}
+
+						log.Info("Matched pod-level checkpoint policy",
+							"pod", pod.Name,
+							"package", pkg.Name,
+							"namespace", namespace)
+
+						if pkg.LiveStatePackage {
+							log.Info("Handling Live package", "package", pkg.Name, "pod", pod.Name)
+							r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
+						} else {
+							r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
+						}
+
+						continue
+					}
+				}
+			}
+
 			switch workloadKind {
 			case "ReplicaSet":
 				replicaSet := &appsv1.ReplicaSet{}

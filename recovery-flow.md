@@ -200,3 +200,4 @@ transition working - cilium CNI
 
 
 create registry secret and checkpoint-sa on each workload cluster
+only restores one pod at a time
