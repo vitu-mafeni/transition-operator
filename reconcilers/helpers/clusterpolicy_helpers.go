@@ -12,13 +12,13 @@ import (
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 )
 
 type ArgoAppSkipResourcesIgnoreDifferences struct {
@@ -454,12 +454,7 @@ func CreateAndPushLiveStateBackupRestore(
 ) (string, error) {
 
 	//create pod resource
-	workloadPod := corev1.Pod{}
-	workloadPod.Name = checkpoint.Spec.PodRef.Name
-	workloadPod.Namespace = checkpoint.Spec.PodRef.Namespace
-	workloadPod.Spec = corev1.PodSpec{
-		Containers: checkpoint.Spec.PodRef.ContainerRef.Containers,
-	}
+	workloadPod := buildCleanPodFromCheckpoint(&checkpoint)
 
 	yamlData, err := yaml.Marshal(workloadPod)
 	if err != nil {
@@ -515,4 +510,58 @@ func CreateAndPushLiveStateBackupRestore(
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
 	return filename, nil
+}
+
+type SimplePod struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata"`
+	Spec       corev1.PodSpec    `yaml:"spec"`
+}
+
+func buildCleanPodFromCheckpoint(cp *transitionv1.Checkpoint) map[string]interface{} {
+	// Build minimal containers slice
+	containers := []map[string]interface{}{}
+	for _, c := range cp.Spec.PodRef.ContainerRef.Containers {
+		cont := map[string]interface{}{
+			"name":  c.Name,
+			"image": c.Image,
+		}
+		if len(c.Args) > 0 {
+			cont["args"] = c.Args
+		}
+		if len(c.Ports) > 0 {
+			// Only include containerPort and protocol
+			ports := []map[string]interface{}{}
+			for _, p := range c.Ports {
+				port := map[string]interface{}{
+					"containerPort": p.ContainerPort,
+				}
+				if p.Protocol != "" {
+					port["protocol"] = string(p.Protocol)
+				}
+				ports = append(ports, port)
+			}
+			cont["ports"] = ports
+		}
+		containers = append(containers, cont)
+	}
+
+	// Build minimal Pod manifest
+	pod := map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]interface{}{
+			"name":      cp.Spec.PodRef.Name,
+			"namespace": cp.Spec.PodRef.Namespace,
+			"labels": map[string]string{
+				"checkpoint": cp.Name,
+			},
+		},
+		"spec": map[string]interface{}{
+			"containers": containers,
+		},
+	}
+
+	return pod
 }
