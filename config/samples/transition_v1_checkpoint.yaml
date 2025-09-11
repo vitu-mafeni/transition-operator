@@ -7,9 +7,6 @@ metadata:
   name: checkpoint-sample
 
 spec:
-  schedule: 0/1 * * * *
-  targetClusterRef:
-    name: migrationdev
   clusterRef:
     name: cluster1-capo
     repository: http://13.214.181.179:30343/nephio/cluster1-aws.git
@@ -27,6 +24,15 @@ spec:
       name: reg-credentials
       namespace: default
     url: docker.io
+  resourceRef:
+    apiVersion: apps/v1
+    kind: Pod
+    name: my-app
+    namespace: default
+  schedule: 0/1 * * * *
+  targetClusterRef:
+    name: migrationdev
+
   # resourceRef:
   #   apiVersion: apps/v1
   #   kind: Pod

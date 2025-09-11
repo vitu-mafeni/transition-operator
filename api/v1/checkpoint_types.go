@@ -17,6 +17,7 @@ limitations under the License.
 package v1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -48,6 +49,21 @@ type PodRef struct {
 	// Name of the referenced pod
 	// +required
 	Name string `json:"name"`
+
+	// ContainerRef specifies the container to checkpoint
+	// +required
+	ContainerRef ContainerRef `json:"containerRef"`
+}
+
+// ContainerRef defines a reference to a container within a Pod
+type ContainerRef struct {
+	// Name of the referenced container
+	// +required
+	Containers []corev1.Container `json:"containers"`
+}
+
+type Containers struct {
+	corev1.Container `json:",inline"`
 }
 
 // BackupRef defines a reference to a backup

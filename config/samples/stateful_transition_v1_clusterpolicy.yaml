@@ -5,23 +5,23 @@ metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
-    name: cluster1-aws
-    repo: http://13.214.181.179:30343/nephio/cluster1-aws.git # repo where the cluster workloads is defined
+    name: cluster1-capo
+    repo: http://192.168.28.111:31650/nephio/cluster1-capo.git # repo where the cluster workloads is defined
     repoType: git
   selectMode: Specific # Specific, All ---> REMOVE
   packageSelectors:
-    - name: wordpress # Package Name
-      packagePath: wordpress-app # where the package is in the repo
+    - name: video # Package Name
+      packagePath: video # where the package is in the repo
       packageType: Stateful # Stateless, Stateful
       liveStatePackage: true
       backupInformation:
-        - name: cluster1vt-backup # Backup Name
-          backupType: Manual # Manual, Schedule
-        - name: core-backup-every-1-min # Schedule Name
+        # - name: my-test-backup # Backup Name
+        #   backupType: Manual # Manual, Schedule
+        - name: my-test-backup # Schedule Name
           backupType: Schedule # Manual, Schedule
           schedulePeriod: "*/1 * * * *" # cron format
   targetClusterPolicy:
     preferClusters:
-      - name: cluster2-azure
+      - name: migrationdev
         repoType: git
         weight: 100

@@ -190,6 +190,10 @@ export SECRET_NAMESPACE_REF=default
 export REGISTRY_URL="docker.io"
 
 ```
+
+// tested with single container
+
+
 ```text
 transition working - cilium CNI
 ```

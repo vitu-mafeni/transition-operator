@@ -3,19 +3,20 @@ package checkpointtransition
 import (
 	"context"
 	"fmt"
+	"math"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	"k8s.io/apimachinery/pkg/types"
 
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capi "github.com/vitu1234/transition-operator/reconcilers/capi"
 	"github.com/vitu1234/transition-operator/reconcilers/helpers"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 //performs checkpoint transition actions on the workload cluster
@@ -208,6 +209,19 @@ func CreateCheckpointCR(
 		}
 	}
 
+	//get target cluster from cluster policy with lowest weight
+	var targetCluster *transitionv1.ClusterRef
+	lowestWeight := int32(math.MaxInt32)
+	for _, cluster := range clusterPolicy.Spec.TargetClusterPolicy.PreferClusters {
+		if int32(cluster.Weight) < lowestWeight {
+			lowestWeight = int32(cluster.Weight)
+			targetCluster = &transitionv1.ClusterRef{
+				Name: cluster.Name,
+				// Repository: cluster.Repo,
+			}
+		}
+	}
+
 	checkpoint := &transitionv1.Checkpoint{
 		Spec: transitionv1.CheckpointSpec{
 			Schedule: schedule.SchedulePeriod,
@@ -216,12 +230,16 @@ func CreateCheckpointCR(
 				Repository: clusterPolicy.Spec.ClusterSelector.Repo,
 			},
 			TargetClusterRef: &transitionv1.ClusterRef{
-				Name: clusterPolicy.Spec.ClusterSelector.Name,
+				Name: targetCluster.Name,
 			},
 			PodRef: transitionv1.PodRef{
 				Name:      pod.Name,
 				Namespace: pod.Namespace,
+				ContainerRef: transitionv1.ContainerRef{
+					Containers: pod.Spec.Containers,
+				},
 			},
+
 			Registry: transitionv1.Registry{
 				URL:        helpers.GetEnv("REGISTRY_URL", "docker.io"), // Example registry URL
 				Repository: helpers.GetEnv("REPOSITORY", "vitu1"),       // Example repository
@@ -240,7 +258,13 @@ func CreateCheckpointCR(
 	checkpoint.Name = fmt.Sprintf("checkpoint-%s-%s-%s", clusterPolicy.Name, pod.Name, pkg.Name)
 
 	// Create the Checkpoint CR
+	// Create the Checkpoint CR
 	if err := client.Create(ctx, checkpoint); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			// Just log and skip, no error returned
+			log.Info("Checkpoint CR already exists, skipping creation", "name", checkpoint.Name)
+			return nil
+		}
 		log.Error(err, "Failed to create Checkpoint CR", "name", checkpoint.Name)
 		return err
 	}

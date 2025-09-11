@@ -569,7 +569,8 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
-		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log)
+		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
+		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
 		if err != nil {
 			log.Error(err, "Failed to push ArgoCD app manifest")
 			//add status that it failed to transition the package
@@ -832,7 +833,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 
 		_, err := helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, r.Client, targetClusterName+"-dr")
 		if err != nil {
-			log.Error(err, "Failed to push Velero manifest")
+			log.Error(err, "Failed to push live workloads pod manifest")
 			//add status that it failed to transition the package
 			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
 				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
@@ -871,7 +872,8 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
-		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log)
+		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
+		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
 		if err != nil {
 			log.Error(err, "Failed to push ArgoCD app manifest")
 			//add status that it failed to transition the package

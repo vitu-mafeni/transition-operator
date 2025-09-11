@@ -21,6 +21,12 @@ import (
 	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 )
 
+type ArgoAppSkipResourcesIgnoreDifferences struct {
+	Group string `json:"group,omitempty"`
+	Kind  string `json:"kind,omitempty"`
+	Name  string `json:"name,omitempty"`
+}
+
 func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
 	for _, repo := range repos {
 		log.Info("Found repository", "name", repo.Name, "full_name", repo.FullName, "url", repo.CloneURL)
@@ -53,6 +59,7 @@ func CreateAndPushArgoApp(
 	username, repoName, folder string,
 	clusterPolicy *transitionv1.ClusterPolicy,
 	transitionPackage transitionv1.PackageSelector,
+	ignoreDifferences []ArgoAppSkipResourcesIgnoreDifferences,
 	log logr.Logger,
 ) (error, string) {
 	app := ArgoAppSpec{
@@ -87,6 +94,19 @@ func CreateAndPushArgoApp(
 		{Group: "fn.kpt.dev", Kind: "StarlarkRun"},
 		{Group: "infra.nephio.org", Kind: "WorkloadCluster"}, // <-- Add this
 	}
+
+	//add more ignore differences if provided
+	// if len(ignoreDifferences) > 0 {
+	// 	for _, diff := range ignoreDifferences {
+	// 		app.Spec.IgnoreDifferences = append(app.Spec.IgnoreDifferences, struct {
+	// 			Group string `yaml:"group"`
+	// 			Kind  string `yaml:"kind"`
+	// 		}{
+	// 			Group: diff.Group,
+	// 			Kind:  diff.Kind,
+	// 		})
+	// 	}
+	// }
 
 	yamlData, err := yaml.Marshal(app)
 	if err != nil {
@@ -293,7 +313,9 @@ func CreateAndPushVeleroRestore(
 	log.Info("Velero restore completed successfully, time to push argo app", "argoapp", repoName)
 
 	// we have to push argo app to the same folder
-	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
+	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{}
+
+	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
 	if err != nil {
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
@@ -432,47 +454,21 @@ func CreateAndPushLiveStateBackupRestore(
 ) (string, error) {
 
 	//create pod resource
-	pod := corev1.Pod{}
-	pod.Name = checkpoint.Spec.PodRef.Name
-	pod.Namespace = checkpoint.Spec.PodRef.Namespace
-	pod.Spec = corev1.PodSpec{
-		Containers: []corev1.Container{
-			{
-				Name:  "pause",
-				Image: "k8s.gcr.io/pause:3.5",
-			},
-		},
+	workloadPod := corev1.Pod{}
+	workloadPod.Name = checkpoint.Spec.PodRef.Name
+	workloadPod.Namespace = checkpoint.Spec.PodRef.Namespace
+	workloadPod.Spec = corev1.PodSpec{
+		Containers: checkpoint.Spec.PodRef.ContainerRef.Containers,
 	}
 
-	// excludedResources := []string{"events.k8s.io", "nodes"}
-	includedNamespaces := []string{"*"}
-	itemOperationTimeout := "4h0m0s"
-
-	app := VeleroRestore{
-		APIVersion: "velero.io/v1",
-		Kind:       "Restore",
-	}
-
-	app.Metadata.Name = fmt.Sprintf("velero-%s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
-	app.Metadata.Namespace = "velero"
-
-	app.Spec.BackupName = backupInfo.Name
-	// app.Spec.ExcludedResources = excludedResources
-	app.Spec.IncludedNamespaces = includedNamespaces
-	// app.Spec.IncludedResources = []string{"persistentvolumeclaims", "secrets", "configmaps"}
-	// app.Spec.ExcludedResources = []string{"deployments", "replicasets", "statefulsets", "daemonsets", "pods", "services", "ingresses", "networkpolicies", "horizontalpodautoscalers"}
-	app.Spec.PreserveNodePorts = true
-	// app.Spec.RestorePVs = true
-	app.Spec.ItemOperationTimeout = itemOperationTimeout
-
-	yamlData, err := yaml.Marshal(app)
+	yamlData, err := yaml.Marshal(workloadPod)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal Velero restore YAML: %w", err)
+		return "", fmt.Errorf("failed to marshal pod recovery restore YAML: %w", err)
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
-	filename := fmt.Sprintf("%s/velero-restore-%s.yaml", folder, timestamp)
-	message := fmt.Sprintf("Velero restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+	filename := fmt.Sprintf("%s/pod-restore-%s.yaml", folder, timestamp)
+	message := fmt.Sprintf("Pod restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
 
 	encodedContent := base64.StdEncoding.EncodeToString(yamlData)
 
@@ -486,10 +482,10 @@ func CreateAndPushLiveStateBackupRestore(
 
 	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
 	if err != nil {
-		return "", fmt.Errorf("failed to create velero restore file in Gitea: %w", err)
+		return "", fmt.Errorf("failed to create live pod restore file in Gitea: %w", err)
 	}
 
-	log.Info("Successfully pushed Velero restore", "repo", repoName, "file", filename)
+	log.Info("Successfully pushed live pod restore", "repo", repoName, "file", filename)
 
 	err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName, "argocd")
 	if err != nil {
@@ -503,14 +499,18 @@ func CreateAndPushLiveStateBackupRestore(
 	// time.Sleep(5 * time.Second)
 
 	// Wait for restore completion instead of fixed delay
-	if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
-		return "", err
+	// if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
+	// 	return "", err
+	// }
+
+	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{
+		{Group: "v1", Kind: "Pod", Name: checkpoint.Spec.PodRef.Name},
 	}
 
-	log.Info("Velero restore completed successfully, time to push argo app", "argoapp", repoName)
+	log.Info("Live state restore completed successfully, time to push argo app", "argoapp", repoName)
 
 	// we have to push argo app to the same folder
-	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
+	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
 	if err != nil {
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
