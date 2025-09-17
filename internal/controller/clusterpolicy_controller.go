@@ -570,7 +570,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
 		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
-		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
+		_, err := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
 		if err != nil {
 			log.Error(err, "Failed to push ArgoCD app manifest")
 			//add status that it failed to transition the package
@@ -681,7 +681,10 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 
 			// --- Step 2: Parent workload annotations ---
 			if hasOwner {
-				parentAnnotations := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+				parentAnnotations, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+				if err != nil {
+					log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
+				}
 				if parentAnnotations != nil {
 					annotations = parentAnnotations
 				}
@@ -917,7 +920,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
 		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
-		err, _ := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
+		_, err := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
 		if err != nil {
 			log.Error(err, "Failed to push ArgoCD app manifest")
 			//add status that it failed to transition the package

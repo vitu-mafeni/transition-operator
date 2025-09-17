@@ -48,56 +48,60 @@ func GetEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	return defaultVal
 }
 
-// helper function to get parent workload annotations
+// helper function to get parent workload object metadata
 func GetParentAnnotations(
 	ctx context.Context,
 	c client.Client,
 	kind, name, namespace string,
-) map[string]string {
+) (*metav1.ObjectMeta, error) {
 
 	log := logf.FromContext(ctx)
+
 	switch kind {
+
 	case "ReplicaSet":
 		rs := &appsv1.ReplicaSet{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, rs); err != nil {
 			log.Error(err, "Failed to get ReplicaSet", "name", name)
-			return nil
+			return nil, err
 		}
+
 		deployName, found := GetWorkloadControllerOwnerName(rs.OwnerReferences, "Deployment")
 		if !found {
-			return rs.Annotations
+			return &rs.ObjectMeta, nil
 		}
+
 		deploy := &appsv1.Deployment{}
 		if err := c.Get(ctx, types.NamespacedName{Name: deployName, Namespace: namespace}, deploy); err != nil {
 			log.Error(err, "Failed to get Deployment", "name", deployName)
-			return rs.Annotations
+			return &rs.ObjectMeta, nil // fallback to RS metadata if deploy not found
 		}
-		return deploy.Annotations
+		return &deploy.ObjectMeta, nil
 
 	case "Deployment":
 		deploy := &appsv1.Deployment{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, deploy); err != nil {
 			log.Error(err, "Failed to get Deployment", "name", name)
-			return nil
+			return nil, err
 		}
-		return deploy.Annotations
+		return &deploy.ObjectMeta, nil
 
 	case "DaemonSet":
 		ds := &appsv1.DaemonSet{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ds); err != nil {
 			log.Error(err, "Failed to get DaemonSet", "name", name)
-			return nil
+			return nil, err
 		}
-		return ds.Annotations
+		return &ds.ObjectMeta, nil
 
 	case "StatefulSet":
 		ss := &appsv1.StatefulSet{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ss); err != nil {
 			log.Error(err, "Failed to get StatefulSet", "name", name)
-			return nil
+			return nil, err
 		}
-		return ss.Annotations
+		return &ss.ObjectMeta, nil
 	}
 
-	return nil
+	return nil, nil // unsupported kind
 }

@@ -22,9 +22,10 @@ import (
 )
 
 type ArgoAppSkipResourcesIgnoreDifferences struct {
-	Group string `json:"group,omitempty"`
-	Kind  string `json:"kind,omitempty"`
-	Name  string `json:"name,omitempty"`
+	Group        string   `json:"group,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	JsonPointers []string `json:"jsonPointers,omitempty"`
 }
 
 func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
@@ -61,7 +62,7 @@ func CreateAndPushArgoApp(
 	transitionPackage transitionv1.PackageSelector,
 	ignoreDifferences []ArgoAppSkipResourcesIgnoreDifferences,
 	log logr.Logger,
-) (error, string) {
+) (string, error) {
 	app := ArgoAppSpec{
 		APIVersion: "argoproj.io/v1alpha1",
 		Kind:       "Application",
@@ -97,16 +98,16 @@ func CreateAndPushArgoApp(
 	if len(ignoreDifferences) > 0 {
 		for _, diff := range ignoreDifferences {
 			app.Spec.IgnoreDifferences = append(app.Spec.IgnoreDifferences, IgnoreDifference{
-				Group: diff.Group,
-				Kind:  diff.Kind,
-				Name:  diff.Name, // optional
-				// Namespace: diff.Namespace, // optional
+				Group:        diff.Group,
+				Kind:         diff.Kind,
+				Name:         diff.Name,
+				JSONPointers: diff.JsonPointers,
 			})
 		}
 	}
 	yamlData, err := yaml.Marshal(app)
 	if err != nil {
-		return fmt.Errorf("failed to marshal Argo application YAML: %w", err), ""
+		return "", fmt.Errorf("failed to marshal Argo application YAML: %w", err)
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
@@ -125,11 +126,11 @@ func CreateAndPushArgoApp(
 
 	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
 	if err != nil {
-		return fmt.Errorf("failed to create file in Gitea: %w", err), ""
+		return "", fmt.Errorf("failed to create file in Gitea: %w", err)
 	}
 
 	log.Info("Successfully pushed Argo application", "repo", repoName, "file", filename)
-	return nil, filename
+	return filename, nil
 }
 
 func GetMostRecentNodeCondition(node corev1.Node) *corev1.NodeCondition {
@@ -311,7 +312,7 @@ func CreateAndPushVeleroRestore(
 	// we have to push argo app to the same folder
 	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{}
 
-	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
+	_, err = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
 	if err != nil {
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
@@ -494,14 +495,23 @@ func CreateAndPushLiveStateBackupRestore(
 	// 	return "", err
 	// }
 
+	//jsonpointers
+
 	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{
-		{Group: "v1", Kind: "Pod", Name: checkpoint.Spec.PodRef.Name},
+		{
+			Group: "",
+			Kind:  "Pod",
+			Name:  checkpoint.Spec.PodRef.Name,
+			JsonPointers: []string{
+				"/spec/containers",
+			},
+		},
 	}
 
 	log.Info("Live state restore completed successfully, time to push argo app", "argoapp", repoName)
 
 	// we have to push argo app to the same folder
-	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
+	_, err = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
 	if err != nil {
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
