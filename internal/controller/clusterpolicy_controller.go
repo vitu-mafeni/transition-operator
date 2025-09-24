@@ -44,7 +44,6 @@ import (
 
 	velero "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -643,98 +642,57 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 
 			var annotations map[string]string
 
-			matched := false
-			for _, pkg := range clusterPolicy.Spec.PackageSelectors {
-				if len(pod.Annotations) > 0 {
-					annotations = pod.Annotations
-					if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-						annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+			// --- Step 1: Pod-level annotations ---
+			if !hasOwner {
+				annotations = pod.Annotations
 
-						key := fmt.Sprintf("%s/%s/%s", namespace, pod.Name, pkg.Name) // pod-level dedup
-						if _, seen := processed[key]; seen {
+				for _, pkg := range clusterPolicy.Spec.PackageSelectors {
+					if len(pod.Annotations) > 0 {
+						annotations = pod.Annotations
+						if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+							annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+
+							key := fmt.Sprintf("%s/%s/%s", namespace, pod.Name, pkg.Name) // pod-level dedup
+							if _, seen := processed[key]; seen {
+								continue
+							}
+							processed[key] = struct{}{}
+
+							log.Info("Matched pod-level checkpoint policy",
+								"pod", pod.Name,
+								"package", pkg.Name,
+								"namespace", namespace)
+
+							if pkg.LiveStatePackage {
+								log.Info("Handling Live package", "package", pkg.Name, "pod", pod.Name)
+								r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
+							} else {
+								r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
+							}
+
+							log.Info("pod has annotations and matched -----------")
 							continue
 						}
-						processed[key] = struct{}{}
-
-						log.Info("Matched pod-level checkpoint policy",
-							"pod", pod.Name,
-							"package", pkg.Name,
-							"namespace", namespace)
-
-						if pkg.LiveStatePackage {
-							log.Info("Handling Live package", "package", pkg.Name, "pod", pod.Name)
-							r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
-						} else {
-							r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
-						}
-						matched = true
-						log.Info("pod has annotations and matched -----------")
-						continue
 					}
 				}
 			}
 
-			if matched {
-				// Skip the switch and move on to next pod
-				continue
-			}
-
 			// --- Step 2: Parent workload annotations ---
+			parentObject := &metav1.PartialObjectMetadata{}
 			if hasOwner {
 				parentAnnotations, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
 				if err != nil {
 					log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
 				}
 				if parentAnnotations != nil {
-					annotations = parentAnnotations
+					annotations = parentAnnotations.Annotations
+					parentObject.Kind = workloadKind
+					parentObject.Name = parentAnnotations.Name
+					parentObject.Namespace = parentAnnotations.Namespace
 				}
 			}
 
 			if annotations == nil {
-				continue
-			}
-
-			switch workloadKind {
-			case "ReplicaSet":
-				replicaSet := &appsv1.ReplicaSet{}
-				if err := clusterClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespace}, replicaSet); err != nil {
-					log.Error(err, "Failed to get ReplicaSet", "pod", pod.Name)
-					continue
-				}
-
-				// Get Deployment owner
-				deployName, found := helpers.GetWorkloadControllerOwnerName(replicaSet.OwnerReferences, "Deployment")
-				if !found {
-					log.Info("ReplicaSet has no Deployment owner", "replicaSet", replicaSet.Name)
-					continue
-				}
-
-				deployment := &appsv1.Deployment{}
-				if err := clusterClient.Get(ctx, types.NamespacedName{Name: deployName, Namespace: namespace}, deployment); err != nil {
-					log.Error(err, "Failed to get Deployment", "deployment", deployName)
-					continue
-				}
-				annotations = deployment.Annotations
-				workloadID = fmt.Sprintf("%s/%s/Deployment", namespace, deployName)
-
-			case "DaemonSet":
-				daemonSet := &appsv1.DaemonSet{}
-				if err := clusterClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespace}, daemonSet); err != nil {
-					log.Error(err, "Failed to get DaemonSet", "daemonSet", workloadName)
-					continue
-				}
-				annotations = daemonSet.Annotations
-
-			case "StatefulSet":
-				statefulSet := &appsv1.StatefulSet{}
-				if err := clusterClient.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: namespace}, statefulSet); err != nil {
-					log.Error(err, "Failed to get StatefulSet", "statefulSet", workloadName)
-					continue
-				}
-				annotations = statefulSet.Annotations
-
-			default:
-				log.Info("Unsupported ddddd controller kind; skipping", "kind", workloadKind, "pod", pod.Name)
 				continue
 			}
 
