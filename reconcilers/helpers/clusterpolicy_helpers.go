@@ -500,8 +500,8 @@ func CreateAndPushLiveStateBackupRestore(
 	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{
 		{
 			Group: "",
-			Kind:  "Pod",
-			Name:  checkpoint.Spec.PodRef.Name,
+			Kind:  checkpoint.Spec.ResourceRef.Kind,
+			Name:  checkpoint.Spec.ResourceRef.Name,
 			JsonPointers: []string{
 				"/spec/containers",
 			},
