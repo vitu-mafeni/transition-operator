@@ -841,45 +841,82 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 			return
 		}
 
-		_, err := helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, r.Client, targetClusterName+"-dr")
+		tmpDir, matches, err := giteaclient.CheckRepoForMatchingManifests(ctx, sourceRepo, "main", &associatedCheckpoint.Spec.ResourceRef)
+
 		if err != nil {
-			log.Error(err, "Failed to push live workloads pod manifest")
-			//add status that it failed to transition the package
+			log.Error(err, "Failed to find matching manifests in source repo", "repo", sourceRepo)
+			return
+		}
+
+		if len(matches) > 0 {
+			log.Info("Found matching manifests",
+				"repo", sourceRepo,
+				"tmpDir", tmpDir,
+				"files", matches)
+
+			for _, f := range matches {
+				// fullPath := filepath.Join(tmpDir, f)
+				if err := giteaclient.UpdateResourceContainers(f, associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage); err != nil {
+					log.Error(err, "failed to update containers in manifest", "file", f)
+					return
+				}
+				log.Info("Updated containers in manifest", "file", f)
+			}
+
+			// commit & push changes back to Gitea
+			log.Info("will commit and push changes back to git here")
+			commitMsg := fmt.Sprintf("Update container image %s/%s", associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage)
+
+			username, password, _, err := giteaclient.GetGiteaSecretUserNamePassword(ctx, r.Client)
+			if err != nil {
+				log.Error(err, "failed to get gitea")
+			}
+
+			if err := giteaclient.CommitAndPush(ctx, tmpDir, "main", sourceRepo, username, password, commitMsg); err != nil {
+				log.Error(err, "failed to commit & push changes")
+			}
+
+			log.Info("Changes committed and pushed", "repo", sourceRepo)
+
+			_, err = helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, r.Client, targetClusterName+"-dr")
+			if err != nil {
+				log.Error(err, "Failed to push live workloads pod manifest")
+				//add status that it failed to transition the package
+				clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
+					PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+					LastTransitionTime:         metav1.Now(),
+					PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
+					PackageTransitionMessage:   err.Error(),
+				})
+
+				if err := r.Status().Update(ctx, clusterPolicy); err != nil {
+					log.Error(err, "Failed to update ClusterPolicy status after transition failure")
+					return
+				}
+				return
+			}
+
+			message := "Transitioned stateful package successfully"
+
+			err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
+			if err != nil {
+				log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+				message += "; but the ArgoCD sync was not triggered successfully"
+			}
 			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
 				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
 				LastTransitionTime:         metav1.Now(),
-				PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
-				PackageTransitionMessage:   err.Error(),
+				PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
+				PackageTransitionMessage:   message,
 			})
 
 			if err := r.Status().Update(ctx, clusterPolicy); err != nil {
-				log.Error(err, "Failed to update ClusterPolicy status after transition failure")
+				log.Error(err, "Failed to update ClusterPolicy status after successful stateful transition")
 				return
 			}
+			log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
 			return
 		}
-
-		message := "Transitioned stateful package successfully"
-
-		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
-		if err != nil {
-			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
-			message += "; but the ArgoCD sync was not triggered successfully"
-		}
-		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-			LastTransitionTime:         metav1.Now(),
-			PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
-			PackageTransitionMessage:   message,
-		})
-
-		if err := r.Status().Update(ctx, clusterPolicy); err != nil {
-			log.Error(err, "Failed to update ClusterPolicy status after successful stateful transition")
-			return
-		}
-		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
-		return
-
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
 		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}

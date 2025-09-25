@@ -37,11 +37,11 @@ func GetWorkloadControllerOwnerName(refs []metav1.OwnerReference, kind string) (
 func GetOwnerName(refs []metav1.OwnerReference, kind string) (string, string, bool) {
 	for _, ref := range refs {
 		log := logf.FromContext(context.TODO())
-		log.V(1).Info("Checking owner reference", "ref", ref, "kind", kind)
+		// log.V(1).Info("Checking owner reference", "ref", ref, "kind", kind)
 		if strings.EqualFold(ref.Kind, kind) &&
 			(ref.Controller == nil || *ref.Controller) {
-			log.V(1).Info("Found matching owner reference Returning success", "name", ref.Name)
-			log.V(1).Info("Found matching owner reference Returning success", "kind", ref.Kind)
+			// log.V(1).Info("Found matching owner reference Returning success", "name", ref.Name)
+			// log.V(1).Info("Found matching owner reference Returning success", "kind", ref.Kind)
 			return ref.Name, ref.Kind, true
 		}
 		log.V(1).Info("Owner reference did not match error", "ref", ref)

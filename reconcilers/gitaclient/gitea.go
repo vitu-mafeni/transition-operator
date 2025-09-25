@@ -40,18 +40,21 @@ type MatchingNadFiles struct {
 }
 
 // CheckRepoForMatchingManifests clones a repo and searches YAML files for a name/namespace match.
-func CheckRepoForMatchingManifests(ctx context.Context, repoURL string, branch string, resourceRef *transitionv1.ResourceRef, typeResource string) (cloneDirectory string, matchingFiles []string, err error) {
+func CheckRepoForMatchingManifests(
+	ctx context.Context,
+	repoURL string,
+	branch string,
+	resourceRef *transitionv1.ResourceRef,
+) (cloneDirectory string, matchingFiles []string, err error) {
 
 	log := logf.FromContext(ctx)
-
 	log.Info("url " + repoURL)
+
 	// clone into a temp dir
-	tmpDir, err := os.MkdirTemp("", "nf-manifests-*")
+	tmpDir, err := os.MkdirTemp("", "transition-manifests-*")
 	if err != nil {
 		return "", nil, err
 	}
-	//remove all the files
-	// defer os.RemoveAll(tmpDir)
 
 	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
 		URL:           repoURL,
@@ -72,7 +75,6 @@ func CheckRepoForMatchingManifests(ctx context.Context, repoURL string, branch s
 		if d.IsDir() {
 			return nil
 		}
-		// Only .yaml or .yml
 		if ext := strings.ToLower(filepath.Ext(path)); ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
@@ -82,38 +84,32 @@ func CheckRepoForMatchingManifests(ctx context.Context, repoURL string, branch s
 			return err
 		}
 
-		// Files may contain multiple YAML docs separated by ---
+		// A file can contain multiple YAML documents separated by ---
 		dec := yaml.NewDecoder(bytes.NewReader(data))
 		for {
+			// Minimal struct with kind, name, namespace
 			var obj struct {
+				Kind     string `yaml:"kind"`
 				Metadata struct {
 					Name      string `yaml:"name"`
 					Namespace string `yaml:"namespace"`
 				} `yaml:"metadata"`
 			}
+
 			if err := dec.Decode(&obj); err != nil {
-				if err.Error() == "EOF" {
+				if errors.Is(err, io.EOF) {
 					break
 				}
 				return err
 			}
 
-			if typeResource == "NFDeployment" {
-				if obj.Metadata.Name == resourceRef.Name && obj.Metadata.Namespace == resourceRef.Namespace {
-					matches = append(matches, path)
-					// no break: a file can have multiple docs
-				}
-			} else {
-				if obj.Metadata.Name == resourceRef.Name && obj.Metadata.Namespace == resourceRef.Namespace {
-					matches = append(matches, path)
-					// no break: a file can have multiple docs
-				}
-			}
+			if obj.Kind == resourceRef.Kind &&
+				obj.Metadata.Name == resourceRef.Name &&
+				obj.Metadata.Namespace == resourceRef.Namespace {
 
-			// if obj.Metadata.Name == "cucp-regional" && obj.Metadata.Namespace == "oai-ran-cucp" {
-			// 	matches = append(matches, path)
-			// 	// no break: a file can have multiple docs
-			// }
+				matches = append(matches, path)
+				// don't break; a file may have multiple matching docs
+			}
 		}
 		return nil
 	}

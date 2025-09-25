@@ -449,53 +449,55 @@ func CreateAndPushLiveStateBackupRestore(
 	TargetClusterk8sClient client.Client,
 	appName string,
 ) (string, error) {
+	/*
+		//create pod resource
+		workloadPod := buildCleanPodFromCheckpoint(&checkpoint)
 
-	//create pod resource
-	workloadPod := buildCleanPodFromCheckpoint(&checkpoint)
+		yamlData, err := yaml.Marshal(workloadPod)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal pod recovery restore YAML: %w", err)
+		}
 
-	yamlData, err := yaml.Marshal(workloadPod)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal pod recovery restore YAML: %w", err)
-	}
+		timestamp := time.Now().Format("20060102-150405")
+		filename := fmt.Sprintf("%s/pod-restore-%s.yaml", folder, timestamp)
+		message := fmt.Sprintf("Pod restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
 
-	timestamp := time.Now().Format("20060102-150405")
-	filename := fmt.Sprintf("%s/pod-restore-%s.yaml", folder, timestamp)
-	message := fmt.Sprintf("Pod restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+		encodedContent := base64.StdEncoding.EncodeToString(yamlData)
 
-	encodedContent := base64.StdEncoding.EncodeToString(yamlData)
+		fileOpts := gitea.CreateFileOptions{
+			Content: encodedContent,
+			FileOptions: gitea.FileOptions{
+				Message:    message,
+				BranchName: "main",
+			},
+		}
 
-	fileOpts := gitea.CreateFileOptions{
-		Content: encodedContent,
-		FileOptions: gitea.FileOptions{
-			Message:    message,
-			BranchName: "main",
-		},
-	}
+		_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
+		if err != nil {
+			return "", fmt.Errorf("failed to create live pod restore file in Gitea: %w", err)
+		}
 
-	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
-	if err != nil {
-		return "", fmt.Errorf("failed to create live pod restore file in Gitea: %w", err)
-	}
+		log.Info("Successfully pushed live pod restore", "repo", repoName, "file", filename)
 
-	log.Info("Successfully pushed live pod restore", "repo", repoName, "file", filename)
+		err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName, "argocd")
+		if err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+			message += "; but the ArgoCD sync was not triggered successfully"
+		}
 
-	err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName, "argocd")
-	if err != nil {
-		log.Error(err, "Failed to trigger ArgoCD sync with kube client")
-		message += "; but the ArgoCD sync was not triggered successfully"
-	}
+		log.Info("DELAYING FOR 5 SECONDS", "repo", repoName, "file", filename)
 
-	log.Info("DELAYING FOR 5 SECONDS", "repo", repoName, "file", filename)
+		//delay 5s and push argocd app to avoid overriding the configs from velero
+		// time.Sleep(5 * time.Second)
 
-	//delay 5s and push argocd app to avoid overriding the configs from velero
-	// time.Sleep(5 * time.Second)
+		// Wait for restore completion instead of fixed delay
+		// if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
+		// 	return "", err
+		// }
 
-	// Wait for restore completion instead of fixed delay
-	// if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
-	// 	return "", err
-	// }
+		//jsonpointers
 
-	//jsonpointers
+	*/
 
 	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{
 		{
@@ -511,11 +513,11 @@ func CreateAndPushLiveStateBackupRestore(
 	log.Info("Live state restore completed successfully, time to push argo app", "argoapp", repoName)
 
 	// we have to push argo app to the same folder
-	_, err = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
+	_, err := CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
 	if err != nil {
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
-	return filename, nil
+	return "filename", nil
 }
 
 type SimplePod struct {
