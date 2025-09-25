@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,22 @@ func GetWorkloadControllerOwnerName(refs []metav1.OwnerReference, kind string) (
 	return "", false
 }
 
+// Helper: finds the name of a specific-kind owner, ignoring nil Controller fields.
+func GetOwnerName(refs []metav1.OwnerReference, kind string) (string, string, bool) {
+	for _, ref := range refs {
+		log := logf.FromContext(context.TODO())
+		log.V(1).Info("Checking owner reference", "ref", ref, "kind", kind)
+		if strings.EqualFold(ref.Kind, kind) &&
+			(ref.Controller == nil || *ref.Controller) {
+			log.V(1).Info("Found matching owner reference Returning success", "name", ref.Name)
+			log.V(1).Info("Found matching owner reference Returning success", "kind", ref.Kind)
+			return ref.Name, ref.Kind, true
+		}
+		log.V(1).Info("Owner reference did not match error", "ref", ref)
+	}
+	return "", "", false
+}
+
 func GetEnv(key, defaultVal string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -53,7 +70,7 @@ func GetParentAnnotations(
 	ctx context.Context,
 	c client.Client,
 	kind, name, namespace string,
-) (*metav1.ObjectMeta, error) {
+) (*metav1.ObjectMeta, string, error) {
 
 	log := logf.FromContext(ctx)
 
@@ -61,47 +78,55 @@ func GetParentAnnotations(
 
 	case "ReplicaSet":
 		rs := &appsv1.ReplicaSet{}
-		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, rs); err != nil {
-			log.Error(err, "Failed to get ReplicaSet", "name", name)
-			return nil, err
+		if err := c.Get(ctx,
+			types.NamespacedName{Name: name, Namespace: namespace}, rs); err != nil {
+			log.Error(err, "Failed to get ReplicaSet", "name", name, "namespace", namespace)
+			return nil, "", err
 		}
 
-		deployName, found := GetWorkloadControllerOwnerName(rs.OwnerReferences, "Deployment")
+		// Log what we really got back for easier troubleshooting
+
+		deployName, _, found := GetOwnerName(rs.OwnerReferences, "Deployment")
 		if !found {
-			return &rs.ObjectMeta, nil
+			// log.Info("ReplicaSet OwnerReferences", "refs", rs.OwnerReferences)
+			// No Deployment owner; just return RS metadata
+			return &rs.ObjectMeta, "ReplicaSet", nil
 		}
 
 		deploy := &appsv1.Deployment{}
-		if err := c.Get(ctx, types.NamespacedName{Name: deployName, Namespace: namespace}, deploy); err != nil {
-			log.Error(err, "Failed to get Deployment", "name", deployName)
-			return &rs.ObjectMeta, nil // fallback to RS metadata if deploy not found
+		if err := c.Get(ctx,
+			types.NamespacedName{Name: deployName, Namespace: rs.Namespace}, deploy); err != nil {
+			log.Error(err, "Failed to get Deployment",
+				"name", deployName, "namespace", rs.Namespace)
+			// Fallback to RS metadata if the Deployment really isn’t there
+			return &rs.ObjectMeta, "ReplicaSet", nil
 		}
-		return &deploy.ObjectMeta, nil
+		return &deploy.ObjectMeta, "Deployment", nil
 
 	case "Deployment":
 		deploy := &appsv1.Deployment{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, deploy); err != nil {
 			log.Error(err, "Failed to get Deployment", "name", name)
-			return nil, err
+			return nil, "", err
 		}
-		return &deploy.ObjectMeta, nil
+		return &deploy.ObjectMeta, "Deployment", nil
 
 	case "DaemonSet":
 		ds := &appsv1.DaemonSet{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ds); err != nil {
 			log.Error(err, "Failed to get DaemonSet", "name", name)
-			return nil, err
+			return nil, "", err
 		}
-		return &ds.ObjectMeta, nil
+		return &ds.ObjectMeta, "DaemonSet", nil
 
 	case "StatefulSet":
 		ss := &appsv1.StatefulSet{}
 		if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, ss); err != nil {
 			log.Error(err, "Failed to get StatefulSet", "name", name)
-			return nil, err
+			return nil, "", err
 		}
-		return &ss.ObjectMeta, nil
+		return &ss.ObjectMeta, "StatefulSet", nil
 	}
 
-	return nil, nil // unsupported kind
+	return nil, "", nil // unsupported kind
 }

@@ -685,13 +685,13 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 			// --- Step 2: Parent workload annotations ---
 			parentObject := &metav1.PartialObjectMetadata{}
 			if hasOwner {
-				parentAnnotations, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+				parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
 				if err != nil {
 					log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
 				}
 				if parentAnnotations != nil {
 					annotations = parentAnnotations.Annotations
-					parentObject.Kind = workloadKind
+					parentObject.Kind = parentKind
 					parentObject.Name = parentAnnotations.Name
 					parentObject.Namespace = parentAnnotations.Namespace
 				}

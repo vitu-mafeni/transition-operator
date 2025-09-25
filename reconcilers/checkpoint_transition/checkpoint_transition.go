@@ -102,13 +102,13 @@ func PerformWorkloadClusterCheckpointAction(
 
 		// --- Step 2: Parent workload annotations ---
 		parentObject := &metav1.PartialObjectMetadata{}
-		parentAnnotations, err := helpers.GetParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
+		parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
 		if err != nil {
 			log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
 		}
 		if parentAnnotations != nil {
 			annotations = parentAnnotations.Annotations
-			parentObject.Kind = workloadKind
+			parentObject.Kind = parentKind
 			parentObject.Name = parentAnnotations.Name
 			parentObject.Namespace = parentAnnotations.Namespace
 		}
