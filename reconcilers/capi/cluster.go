@@ -19,8 +19,15 @@ package capi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
+	"time"
+
+	// capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
@@ -29,6 +36,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/scale/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
@@ -65,9 +73,11 @@ func (r *Capi) GetClusterName() string {
 	return strings.TrimSuffix(r.Secret.GetName(), kubeConfigSuffix)
 }
 
-func (r *Capi) GetClusterClient(ctx context.Context) (resource.APIPatchingApplicator, bool, error) {
+func (r *Capi) GetClusterClient(ctx context.Context) (resource.APIPatchingApplicator, *rest.Config, bool, error) {
 	if !r.isCapiClusterReady(ctx) {
-		return resource.APIPatchingApplicator{}, false, nil
+
+		return resource.APIPatchingApplicator{}, nil, false, fmt.Errorf("workload cluster %q not Ready yet", r.GetClusterName())
+
 	}
 	return getCapiClusterClient(r.Secret)
 }
@@ -105,35 +115,23 @@ func isReady(cs capiv1beta1.Conditions) bool {
 	return false
 }
 
-func getCapiClusterClient(secret *corev1.Secret) (resource.APIPatchingApplicator, bool, error) {
-	// Load the scheme with Velero
-
+func getCapiClusterClient(secret *corev1.Secret) (resource.APIPatchingApplicator, *rest.Config, bool, error) {
 	scheme := GetDefaultKubeScheme()
-
-	s := GetDefaultKubeScheme()
-
-	utilruntime.Must(velerov1.AddToScheme(s))
-	_ = velerov1.AddToScheme(scheme)
-
+	utilruntime.Must(velerov1.AddToScheme(scheme))
 	_ = argov1alpha1.AddToScheme(scheme)
-	// Add other APIs you use...
 
-	//provide a rest config from the secret value
+	// build rest.Config from kubeconfig
 	config, err := clientcmd.RESTConfigFromKubeConfig(secret.Data["value"])
 	if err != nil {
-		return resource.APIPatchingApplicator{}, false, err
-	}
-	// build a cluster client from the kube rest config
-	// clClient, err := client.New(config, client.Options{})
-	// if err != nil {
-	// 	return resource.APIPatchingApplicator{}, false, err
-	// }
-	clClient, err := client.New(config, client.Options{Scheme: scheme})
-	if err != nil {
-		return resource.APIPatchingApplicator{}, false, err
+		return resource.APIPatchingApplicator{}, nil, false, err
 	}
 
-	return resource.NewAPIPatchingApplicator(clClient), true, nil
+	clClient, err := client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
+		return resource.APIPatchingApplicator{}, nil, false, err
+	}
+
+	return resource.NewAPIPatchingApplicator(clClient), config, true, nil
 }
 
 // GetCapiCluster returns a Capi instance for the given secret.
@@ -213,4 +211,51 @@ func GetDefaultKubeScheme() *runtime.Scheme {
 	utilruntime.Must(scheme.AddToScheme(s))
 
 	return s
+}
+
+// NEW
+
+// GetWorkloadClusterClient returns a client + rest config for a workload cluster.
+func GetWorkloadClusterClient(
+	ctx context.Context,
+	c client.Client, // <— pass client explicitly instead of using r.Client
+	clusterName string,
+) (ctrl.Result, client.Client, *rest.Config, error) {
+	log := logf.FromContext(ctx)
+
+	clusterList := &capiv1beta1.ClusterList{}
+	if err := c.List(ctx, clusterList); err != nil {
+		return ctrl.Result{}, nil, nil, err
+	}
+
+	var capiCluster *Capi
+	for _, workloadCluster := range clusterList.Items {
+		if clusterName == workloadCluster.Name {
+			var err error
+			capiCluster, err = GetCapiClusterFromName(ctx, clusterName, "default", c)
+			if err != nil {
+				log.Error(err, "Failed to get CAPI cluster")
+				return ctrl.Result{}, nil, nil, err
+			}
+			break
+		}
+	}
+
+	if capiCluster == nil {
+		return ctrl.Result{}, nil, nil, fmt.Errorf("no matching cluster found for %s", clusterName)
+	}
+
+	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
+
+	clusterClient, restConfig, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
+	}
+	if !ready {
+		log.Info("Workload cluster not Ready yet, requeueing", "cluster", capiCluster.GetClusterName())
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil, nil, nil
+	}
+
+	return ctrl.Result{}, clusterClient, restConfig, nil
 }

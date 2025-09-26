@@ -37,9 +37,10 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
+
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"github.com/vitu1234/transition-operator/internal/controller"
-	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
 	// +kubebuilder:scaffold:imports
 
@@ -223,6 +224,13 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterPolicy")
+		os.Exit(1)
+	}
+	if err := (&controller.CheckpointReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Checkpoint")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

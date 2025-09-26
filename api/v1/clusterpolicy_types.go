@@ -8,7 +8,7 @@ You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
+distributed under the License is distributed on an "AS IS" BASIS,0
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
@@ -62,12 +62,12 @@ type SelectMode string
 
 // ClusterPolicySpec defines the desired state of ClusterPolicy.
 type ClusterPolicySpec struct {
-	ClusterSelector        ClusterSelector        `json:"clusterSelector"`
-	SelectMode             SelectMode             `json:"selectMode"`     // specific, all, or none
-	TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
-	PackageSelectors       []PackageSelector      `json:"packageSelectors,omitempty"`
-	PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
-	TargetClusterPolicy    TargetClusterPolicy    `json:"targetClusterPolicy,omitempty"`
+	ClusterSelector ClusterSelector `json:"clusterSelector"`
+	SelectMode      SelectMode      `json:"selectMode"` // specific, all, or none
+	// TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
+	PackageSelectors []PackageSelector `json:"packageSelectors,omitempty"`
+	// PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
+	TargetClusterPolicy TargetClusterPolicy `json:"targetClusterPolicy,omitempty"`
 }
 
 // ClusterSelector specifies the source cluster
@@ -80,16 +80,18 @@ type ClusterSelector struct {
 
 // PackageSelector defines individual package selection criteria
 type PackageSelector struct {
-	Name              string              `json:"name"`
-	PackagePath       string              `json:"packagePath"`
-	PackageType       PackageType         `json:"packageType"` // e.g., stateful, stateless
-	Selected          bool                `json:"selected"`
+	Name        string      `json:"name"`
+	PackagePath string      `json:"packagePath"`
+	PackageType PackageType `json:"packageType"` // e.g., stateful, stateless
+	// Selected          bool                `json:"selected"`
+	LiveStatePackage  bool                `json:"liveStatePackage,omitempty"`
 	BackupInformation []BackupInformation `json:"backupInformation"`
 }
 
 type BackupInformation struct {
-	Name       string     `json:"name"`
-	BackupType BackupType `json:"backupType"`
+	Name           string     `json:"name"`
+	BackupType     BackupType `json:"backupType"`
+	SchedulePeriod string     `json:"schedulePeriod,omitempty"` // cron format, only for Schedule type
 }
 
 // PackageRetentionPolicy defines rules for source cleanup after transition

@@ -12,14 +12,21 @@ import (
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
 	"github.com/go-logr/logr"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
+	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 	"gopkg.in/yaml.v2"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	velerov1 "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 )
+
+type ArgoAppSkipResourcesIgnoreDifferences struct {
+	Group        string   `json:"group,omitempty"`
+	Kind         string   `json:"kind,omitempty"`
+	Name         string   `json:"name,omitempty"`
+	JsonPointers []string `json:"jsonPointers,omitempty"`
+}
 
 func LogRepositories(log logr.Logger, repos []*gitea.Repository) {
 	for _, repo := range repos {
@@ -53,8 +60,9 @@ func CreateAndPushArgoApp(
 	username, repoName, folder string,
 	clusterPolicy *transitionv1.ClusterPolicy,
 	transitionPackage transitionv1.PackageSelector,
+	ignoreDifferences []ArgoAppSkipResourcesIgnoreDifferences,
 	log logr.Logger,
-) (error, string) {
+) (string, error) {
 	app := ArgoAppSpec{
 		APIVersion: "argoproj.io/v1alpha1",
 		Kind:       "Application",
@@ -79,18 +87,27 @@ func CreateAndPushArgoApp(
 	app.Spec.SyncPolicy.SyncOptions = []string{"CreateNamespace=true"}
 
 	// Correct placement of IgnoreDifferences
-	app.Spec.IgnoreDifferences = []struct {
-		Group string `yaml:"group"`
-		Kind  string `yaml:"kind"`
-	}{
+	app.Spec.IgnoreDifferences = []IgnoreDifference{
 		{Group: "fn.kpt.dev", Kind: "ApplyReplacements"},
 		{Group: "fn.kpt.dev", Kind: "StarlarkRun"},
 		{Group: "infra.nephio.org", Kind: "WorkloadCluster"}, // <-- Add this
 	}
 
+	//add more ignore differences if provided
+	// Add more ignore differences if provided
+	if len(ignoreDifferences) > 0 {
+		for _, diff := range ignoreDifferences {
+			app.Spec.IgnoreDifferences = append(app.Spec.IgnoreDifferences, IgnoreDifference{
+				Group:        diff.Group,
+				Kind:         diff.Kind,
+				Name:         diff.Name,
+				JSONPointers: diff.JsonPointers,
+			})
+		}
+	}
 	yamlData, err := yaml.Marshal(app)
 	if err != nil {
-		return fmt.Errorf("failed to marshal Argo application YAML: %w", err), ""
+		return "", fmt.Errorf("failed to marshal Argo application YAML: %w", err)
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
@@ -109,11 +126,11 @@ func CreateAndPushArgoApp(
 
 	_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
 	if err != nil {
-		return fmt.Errorf("failed to create file in Gitea: %w", err), ""
+		return "", fmt.Errorf("failed to create file in Gitea: %w", err)
 	}
 
 	log.Info("Successfully pushed Argo application", "repo", repoName, "file", filename)
-	return nil, filename
+	return filename, nil
 }
 
 func GetMostRecentNodeCondition(node corev1.Node) *corev1.NodeCondition {
@@ -293,7 +310,9 @@ func CreateAndPushVeleroRestore(
 	log.Info("Velero restore completed successfully, time to push argo app", "argoapp", repoName)
 
 	// we have to push argo app to the same folder
-	err, _ = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, log)
+	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{}
+
+	_, err = CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
 	if err != nil {
 		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
 	}
@@ -416,4 +435,141 @@ func waitForVeleroRestoreCompletion(k8sClient client.Client, restoreName, namesp
 			}
 		}
 	}
+}
+
+func CreateAndPushLiveStateBackupRestore(
+	ctx context.Context,
+	client *gitea.Client,
+	username, repoName, folder string,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	transitionPackage transitionv1.PackageSelector,
+	log logr.Logger,
+	backupInfo transitionv1.BackupInformation,
+	checkpoint transitionv1.Checkpoint,
+	TargetClusterk8sClient client.Client,
+	appName string,
+) (string, error) {
+	/*
+		//create pod resource
+		workloadPod := buildCleanPodFromCheckpoint(&checkpoint)
+
+		yamlData, err := yaml.Marshal(workloadPod)
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal pod recovery restore YAML: %w", err)
+		}
+
+		timestamp := time.Now().Format("20060102-150405")
+		filename := fmt.Sprintf("%s/pod-restore-%s.yaml", folder, timestamp)
+		message := fmt.Sprintf("Pod restore: %s-%s", clusterPolicy.Spec.ClusterSelector.Name, transitionPackage.Name)
+
+		encodedContent := base64.StdEncoding.EncodeToString(yamlData)
+
+		fileOpts := gitea.CreateFileOptions{
+			Content: encodedContent,
+			FileOptions: gitea.FileOptions{
+				Message:    message,
+				BranchName: "main",
+			},
+		}
+
+		_, _, err = client.CreateFile(username, repoName, filename, fileOpts)
+		if err != nil {
+			return "", fmt.Errorf("failed to create live pod restore file in Gitea: %w", err)
+		}
+
+		log.Info("Successfully pushed live pod restore", "repo", repoName, "file", filename)
+
+		err = TriggerArgoCDSyncWithKubeClient(TargetClusterk8sClient, appName, "argocd")
+		if err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
+			message += "; but the ArgoCD sync was not triggered successfully"
+		}
+
+		log.Info("DELAYING FOR 5 SECONDS", "repo", repoName, "file", filename)
+
+		//delay 5s and push argocd app to avoid overriding the configs from velero
+		// time.Sleep(5 * time.Second)
+
+		// Wait for restore completion instead of fixed delay
+		// if err := waitForVeleroRestoreCompletion(TargetClusterk8sClient, app.Metadata.Name, app.Metadata.Namespace, 30*time.Minute, log); err != nil {
+		// 	return "", err
+		// }
+
+		//jsonpointers
+
+	*/
+
+	ignoreDifferences := []ArgoAppSkipResourcesIgnoreDifferences{
+		{
+			Group: "",
+			Kind:  checkpoint.Spec.ResourceRef.Kind,
+			Name:  checkpoint.Spec.ResourceRef.Name,
+			JsonPointers: []string{
+				"/spec/containers",
+			},
+		},
+	}
+
+	log.Info("Live state restore completed successfully, time to push argo app", "argoapp", repoName)
+
+	// we have to push argo app to the same folder
+	_, err := CreateAndPushArgoApp(ctx, client, username, repoName, folder, clusterPolicy, transitionPackage, ignoreDifferences, log)
+	if err != nil {
+		return "", fmt.Errorf("stateful workload final restore file - failed to create argocd application restore file in gitea: %w", err)
+	}
+	return "filename", nil
+}
+
+type SimplePod struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   metav1.ObjectMeta `yaml:"metadata"`
+	Spec       corev1.PodSpec    `yaml:"spec"`
+}
+
+func buildCleanPodFromCheckpoint(cp *transitionv1.Checkpoint) map[string]interface{} {
+	// Build minimal containers slice
+	containers := []map[string]interface{}{}
+	for _, c := range cp.Spec.PodRef.ContainerRef.Containers {
+		cont := map[string]interface{}{
+			"name":  c.Name,
+			"image": cp.Status.LastCheckpointImage,
+		}
+		if len(c.Args) > 0 {
+			cont["args"] = c.Args
+		}
+		if len(c.Ports) > 0 {
+			// Only include containerPort and protocol
+			ports := []map[string]interface{}{}
+			for _, p := range c.Ports {
+				port := map[string]interface{}{
+					"containerPort": p.ContainerPort,
+				}
+				if p.Protocol != "" {
+					port["protocol"] = string(p.Protocol)
+				}
+				ports = append(ports, port)
+			}
+			cont["ports"] = ports
+		}
+		containers = append(containers, cont)
+	}
+
+	// Build minimal Pod manifest
+	pod := map[string]interface{}{
+		"apiVersion": "v1",
+		"kind":       "Pod",
+		"metadata": map[string]interface{}{
+			"name":      cp.Spec.PodRef.Name,
+			"namespace": cp.Spec.PodRef.Namespace,
+			"labels": map[string]string{
+				"checkpoint": cp.Name,
+			},
+		},
+		"spec": map[string]interface{}{
+			"containers": containers,
+		},
+	}
+
+	return pod
 }

@@ -28,7 +28,9 @@ import (
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type GiteaClient interface {
@@ -200,4 +202,45 @@ func (r *gc) ListAccessTokens(opts gitea.ListAccessTokensOptions) ([]*gitea.Acce
 
 func (r *gc) CreateAccessToken(opt gitea.CreateAccessTokenOption) (*gitea.AccessToken, *gitea.Response, error) {
 	return r.giteaClient.CreateAccessToken(opt)
+}
+
+// NEW STUFF BELOW
+func GetGiteaSecretUserNamePassword(ctx context.Context, client client.Client) (username, password, giturl string, erro error) {
+	log := logf.FromContext(ctx)
+
+	// Get Git server URL from environment variable
+	gitURL := os.Getenv("GIT_SERVER_URL")
+	if gitURL == "" {
+		log.Error(fmt.Errorf("GIT_SERVER_URL environment variable not set"), "Failed to initialize git client")
+		return
+	}
+
+	// Get Git credentials from secret
+	gitSecretName := os.Getenv("GIT_SECRET_NAME")
+	if gitSecretName == "" {
+		gitSecretName = "git-user-secret" // default secret name
+	}
+
+	gitSecretNamespace := os.Getenv("GIT_SECRET_NAMESPACE")
+	if gitSecretNamespace == "" {
+		if ns := os.Getenv("POD_NAMESPACE"); ns != "" {
+			gitSecretNamespace = ns
+		} else {
+			gitSecretNamespace = "default"
+		}
+	}
+
+	// Get the secret containing Git credentials
+	secret := &corev1.Secret{}
+	err := client.Get(ctx, types.NamespacedName{
+		Name:      gitSecretName,
+		Namespace: gitSecretNamespace,
+	}, secret)
+	if err != nil {
+		log.Error(err, "Failed to get git credentials secret")
+		return "", "", "", err
+	}
+
+	return string(secret.Data["username"]), string(secret.Data["password"]), gitURL, nil
+
 }
