@@ -27,6 +27,7 @@ rules:
   resources:
   - checkpoints
   - clusterpolicies
+  - nodehealths
   - packagepolicies
   verbs:
   - create
@@ -41,6 +42,7 @@ rules:
   resources:
   - checkpoints/finalizers
   - clusterpolicies/finalizers
+  - nodehealths/finalizers
   - packagepolicies/finalizers
   verbs:
   - update
@@ -49,6 +51,7 @@ rules:
   resources:
   - checkpoints/status
   - clusterpolicies/status
+  - nodehealths/status
   - packagepolicies/status
   verbs:
   - get

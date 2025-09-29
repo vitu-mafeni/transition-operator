@@ -19,6 +19,7 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -41,6 +42,7 @@ import (
 
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"github.com/vitu1234/transition-operator/internal/controller"
+	"github.com/vitu1234/transition-operator/reconcilers/heartbeat"
 
 	// +kubebuilder:scaffold:imports
 
@@ -212,6 +214,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	namespace := os.Getenv("NAMESPACE")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Start heartbeat server & node fault monitoring
+	heartbeatAddr := ":8090" // can also read from ENV
+	heartbeat.StartServer(mgr.GetClient(), namespace, heartbeatAddr)
+	log.Printf("Heartbeat server and monitoring started on %s", heartbeatAddr)
+
 	if err := (&controller.PackagePolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -231,6 +243,13 @@ func main() {
 		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Checkpoint")
+		os.Exit(1)
+	}
+	if err := (&controller.NodeHealthReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "NodeHealth")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder

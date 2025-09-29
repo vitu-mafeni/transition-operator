@@ -5,6 +5,7 @@ resources:
 - bases/transition.dcnlab.ssu.ac.kr_packagepolicies.yaml
 - bases/transition.dcnlab.ssu.ac.kr_clusterpolicies.yaml
 - bases/transition.dcnlab.ssu.ac.kr_checkpoints.yaml
+- bases/transition.dcnlab.ssu.ac.kr_nodehealths.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
