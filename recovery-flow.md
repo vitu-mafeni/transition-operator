@@ -201,3 +201,8 @@ transition working - cilium CNI
 
 create registry secret and checkpoint-sa on each workload cluster
 only restores one pod at a time
+
+---
+* If cannot access checkpoint node API, take it as fault and migrate
+* The status/condition should be a list, so if current checkpoint has issues, we should get last known checkpoint
+* 
