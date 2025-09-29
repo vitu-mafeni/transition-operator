@@ -49,6 +49,11 @@ spec:
             properties:
               arch:
                 type: string
+              cluster_name:
+                description: From node annotations
+                type: string
+              cluster_namespace:
+                type: string
               condition:
                 type: string
               conditions:
@@ -124,10 +129,14 @@ spec:
                 type: string
               cpus:
                 type: integer
+              cri_socket:
+                type: string
               ip:
                 type: string
               lastSeen:
                 format: date-time
+                type: string
+              machine:
                 type: string
               memTotal:
                 format: int64
@@ -136,6 +145,12 @@ spec:
                 format: int64
                 type: integer
               os:
+                type: string
+              owner_kind:
+                type: string
+              owner_name:
+                type: string
+              provided_node_ip:
                 type: string
             type: object
         required:

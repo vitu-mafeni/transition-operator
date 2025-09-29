@@ -214,16 +214,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	namespace := os.Getenv("NAMESPACE")
-	if namespace == "" {
-		namespace = "default"
-	}
-
-	// Start heartbeat server & node fault monitoring
-	heartbeatAddr := ":8090" // can also read from ENV
-	heartbeat.StartServer(mgr.GetClient(), namespace, heartbeatAddr)
-	log.Printf("Heartbeat server and monitoring started on %s", heartbeatAddr)
-
 	if err := (&controller.PackagePolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -231,10 +221,11 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "PackagePolicy")
 		os.Exit(1)
 	}
-	if err := (&controller.ClusterPolicyReconciler{
+	clusterPolicyReconciler := &controller.ClusterPolicyReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err := clusterPolicyReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterPolicy")
 		os.Exit(1)
 	}
@@ -252,6 +243,17 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "NodeHealth")
 		os.Exit(1)
 	}
+
+	namespace := os.Getenv("NAMESPACE")
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// Start heartbeat server & node fault monitoring
+	heartbeatAddr := ":8090" // can also read from ENV
+	heartbeat.StartServer(mgr.GetClient(), namespace, heartbeatAddr, clusterPolicyReconciler)
+	log.Printf("Heartbeat server and monitoring started on %s", heartbeatAddr)
+
 	// +kubebuilder:scaffold:builder
 
 	if metricsCertWatcher != nil {

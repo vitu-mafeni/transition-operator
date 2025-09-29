@@ -9,6 +9,7 @@ import (
 	"time"
 
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
+	"github.com/vitu1234/transition-operator/internal/controller"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,6 +25,15 @@ type HeartbeatPayload struct {
 	MemoryMB   uint64            `json:"memory_mb"`
 	Extra      map[string]string `json:"extra,omitempty"`
 	ReceivedAt time.Time         `json:"received_at"`
+
+	// From node annotations
+	ClusterName string `json:"cluster_name,omitempty"`
+	ClusterNS   string `json:"cluster_namespace,omitempty"`
+	Machine     string `json:"machine,omitempty"`
+	OwnerKind   string `json:"owner_kind,omitempty"`
+	OwnerName   string `json:"owner_name,omitempty"`
+	ProvidedIP  string `json:"provided_node_ip,omitempty"`
+	CRISocket   string `json:"cri_socket,omitempty"`
 }
 
 // In-memory state store
@@ -160,7 +170,7 @@ func UpsertNodeHealth(ctx context.Context, c ctrl.Client, namespace string, hb H
 }
 
 // MonitorNodes periodically checks heartbeat timestamps to detect faults
-func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string) {
+func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string, clusterPolicyReconciler *controller.ClusterPolicyReconciler) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -169,7 +179,11 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 		nodes := store.All()
 		for _, hb := range nodes {
 			if now.Sub(hb.ReceivedAt) > NodeTimeout {
-				log.Printf("Node %s (%s) missed heartbeat → marking Unhealthy", hb.NodeName, hb.IPAddress)
+				log.Printf("Triggering ClusterPolicy reconciliation due to node %s being Unhealthy", hb.NodeName)
+				// Trigger ClusterPolicy reconciliation to handle node failure
+				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(context.Background(), hb.NodeName, hb.ClusterName); err != nil {
+					log.Printf("failed to trigger ClusterPolicy reconciliation for %s: %v", hb.NodeName, err)
+				}
 				if err := UpsertNodeHealth(context.Background(), k8sClient, namespace, hb, "Unhealthy"); err != nil {
 					log.Printf("failed to update NodeHealth for %s: %v", hb.NodeName, err)
 				}
@@ -179,8 +193,8 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 }
 
 // StartServer starts heartbeat server and fault monitoring
-func StartServer(k8sClient ctrl.Client, namespace string, addr string) {
+func StartServer(k8sClient ctrl.Client, namespace string, addr string, clusterPolicyReconciler *controller.ClusterPolicyReconciler) {
 	store := NewHeartbeatStore()
 	RunHeartbeatServer(store, addr, k8sClient, namespace)
-	go MonitorNodes(store, k8sClient, namespace)
+	go MonitorNodes(store, k8sClient, namespace, clusterPolicyReconciler)
 }

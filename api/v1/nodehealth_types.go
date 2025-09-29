@@ -66,6 +66,15 @@ type NodeHealthStatus struct {
 	MemUsed   uint64      `json:"memUsed,omitempty"`
 	LastSeen  metav1.Time `json:"lastSeen,omitempty"`
 	Condition string      `json:"condition,omitempty"`
+
+	// From node annotations
+	ClusterName string `json:"cluster_name,omitempty"`
+	ClusterNS   string `json:"cluster_namespace,omitempty"`
+	Machine     string `json:"machine,omitempty"`
+	OwnerKind   string `json:"owner_kind,omitempty"`
+	OwnerName   string `json:"owner_name,omitempty"`
+	ProvidedIP  string `json:"provided_node_ip,omitempty"`
+	CRISocket   string `json:"cri_socket,omitempty"`
 }
 
 // +kubebuilder:object:root=true

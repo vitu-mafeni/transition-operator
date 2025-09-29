@@ -75,6 +75,10 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// fmt.Println("Request:", req)
 	log := logf.FromContext(ctx)
 	log.Info("Reconciling ClusterPolicy")
+
+	// check the heartbeat status of nodes frequently to trigger node failure handling from NodeHealth CRs
+	//
+
 	// List all Cluster resources
 	clusterList := &capiv1beta1.ClusterList{}
 	if err := r.Client.List(ctx, clusterList); err != nil {
@@ -963,6 +967,86 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 		log.Info("Unknown package type; skipping transition", "package", transitionPackage.Name)
 	}
 
+}
+
+// trigger migration of workloads on a cluster node is unhealthy
+func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Context, nodeName, clusterName string) error {
+	// 1. Create checkpoint CR
+	// 2. Trigger migration workflow
+	// 3. Patch ClusterPolicy status
+	// (You already have this flow inside Reconcile, reuse here)
+	log := logf.FromContext(ctx)
+	log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
+
+	// trigger migration
+	if err := r.triggerMigrationFromHeartBeat(ctx, nodeName, clusterName); err != nil {
+		log.Error(err, "Failed to trigger migration")
+		return err
+	}
+
+	return nil
+}
+
+func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Context, nodeName string, clusterName string) error {
+	log := logf.FromContext(ctx)
+	log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
+
+	req := r.Client
+
+	workloadCluster := &capiv1beta1.Cluster{}
+	err := req.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, workloadCluster)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster", "cluster", clusterName)
+		return err
+	}
+
+	// // List all Cluster resources
+	// clusterList := &capiv1beta1.ClusterList{}
+	// if err := req.List(ctx, clusterList); err != nil {
+	// 	return err
+	// }
+
+	// _, err, targetClusterClient := r.GetWorkloadClusterClientByName(ctx, clusterName)
+	// if err != nil {
+	// 	log.Error(err, "Failed to get target workload cluster client", "cluster", clusterName)
+	// 	return err
+	// }
+
+	clusterPolicy := &transitionv1.ClusterPolicy{}
+	clusterPolicyList := &transitionv1.ClusterPolicyList{}
+	if err := req.List(ctx, clusterPolicyList); err != nil {
+		return err
+	}
+
+	// Find the ClusterPolicy associated with the given clusterName
+	for _, cp := range clusterPolicyList.Items {
+		if cp.Spec.ClusterSelector.Name == clusterName {
+			clusterPolicy = &cp
+			break
+		}
+	}
+
+	if clusterPolicy.Name == "" {
+		log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
+		return fmt.Errorf("no ClusterPolicy found for cluster %s", clusterName)
+	}
+	log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
+
+	// iterate through all package selectors and check if its a live package
+	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
+		if pkg.LiveStatePackage {
+			log.Info("Found live state package from heartbeat", "package", pkg.Name)
+
+			//we have to create checkpoints for this package
+			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, workloadCluster)
+
+			if err != nil {
+				log.Error(err, "Failed to get cluster resources info for package", "package", pkg.Name)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context, obj client.Object) []reconcile.Request {

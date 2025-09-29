@@ -59,45 +59,7 @@ func PerformWorkloadClusterCheckpointAction(
 			// If no owner, skip to avoid pod-level checkpoint creation
 			log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
 			continue
-			// If you want to enable pod-level checkpoint creation, uncomment the following lines
-			// annotations = pod.Annotations
-			/*
-				for _, pkg := range clusterPolicy.Spec.PackageSelectors {
-					if len(pod.Annotations) > 0 {
-						annotations = pod.Annotations
-						if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-							annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
 
-							key := fmt.Sprintf("%s/%s/%s", namespace, pod.Name, pkg.Name) // pod-level dedup
-							if _, seen := processed[key]; seen {
-								continue
-							}
-							processed[key] = struct{}{}
-
-							log.Info("Matched pod-level checkpoint policy",
-								"pod", pod.Name,
-								"package", pkg.Name,
-								"namespace", namespace)
-							parentObject := &metav1.PartialObjectMetadata{}
-
-							if annotations != nil {
-								parentObject.Kind = workloadKind
-								parentObject.Name = pod.Name
-								parentObject.Namespace = pod.Namespace
-							}
-
-							if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
-								log.Error(err, "Failed to create Checkpoint CR for pod",
-									"pod", pod.Name,
-									"package", pkg.Name)
-								return err
-							}
-
-							continue
-
-						}
-					}
-				}*/
 		}
 
 		// --- Step 2: Parent workload annotations ---
