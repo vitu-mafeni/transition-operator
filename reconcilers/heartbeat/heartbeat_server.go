@@ -3,7 +3,6 @@ package heartbeat
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -13,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Payload sent by agents
@@ -76,6 +76,7 @@ const NodeTimeout = 20 * time.Second // adjust as needed
 // RunHeartbeatServer starts HTTP server inside your controller
 func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Client, namespace string) {
 	mux := http.NewServeMux()
+	log := logf.FromContext(context.Background())
 
 	// endpoint to receive heartbeats
 	mux.HandleFunc("/heartbeat", func(w http.ResponseWriter, r *http.Request) {
@@ -93,11 +94,11 @@ func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Clien
 
 		// update store
 		store.Update(hb)
-		log.Printf("heartbeat received from %s (%s)", hb.NodeName, hb.IPAddress)
+		log.Info("heartbeat received from %s (%s)", hb.NodeName, hb.IPAddress)
 
 		// upsert NodeHealth CR as Healthy
 		if err := UpsertNodeHealth(r.Context(), k8sClient, namespace, hb, "Healthy"); err != nil {
-			log.Printf("failed to upsert NodeHealth for %s: %v", hb.NodeName, err)
+			log.Error(err, "failed to upsert NodeHealth for %s", hb.NodeName+" in cluster "+hb.ClusterName)
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -111,9 +112,9 @@ func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Clien
 	})
 
 	go func() {
-		log.Printf("heartbeat server listening on %s", addr)
+		log.Info("heartbeat server listening on %s", addr)
 		if err := http.ListenAndServe(addr, mux); err != nil {
-			log.Fatalf("heartbeat server error: %v", err)
+			log.Error(err, "heartbeat server error")
 		}
 	}()
 }
@@ -171,6 +172,9 @@ func UpsertNodeHealth(ctx context.Context, c ctrl.Client, namespace string, hb H
 
 // MonitorNodes periodically checks heartbeat timestamps to detect faults
 func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string, clusterPolicyReconciler *controller.ClusterPolicyReconciler) {
+	ctx := context.Background()
+	log := logf.FromContext(ctx)
+
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -179,13 +183,13 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 		nodes := store.All()
 		for _, hb := range nodes {
 			if now.Sub(hb.ReceivedAt) > NodeTimeout {
-				log.Printf("Triggering ClusterPolicy reconciliation due to node %s being Unhealthy", hb.NodeName)
+				log.Info("Triggering ClusterPolicy reconciliation due to node %s being Unhealthy", hb.NodeName+" in cluster "+hb.ClusterName)
 				// Trigger ClusterPolicy reconciliation to handle node failure
 				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(context.Background(), hb.NodeName, hb.ClusterName); err != nil {
-					log.Printf("failed to trigger ClusterPolicy reconciliation for %s: %v", hb.NodeName, err)
+					log.Error(err, "failed to trigger ClusterPolicy reconciliation for %s", hb.NodeName+" in cluster "+hb.ClusterName)
 				}
 				if err := UpsertNodeHealth(context.Background(), k8sClient, namespace, hb, "Unhealthy"); err != nil {
-					log.Printf("failed to update NodeHealth for %s: %v", hb.NodeName, err)
+					log.Error(err, "failed to update NodeHealth for %s", hb.NodeName+" in cluster "+hb.ClusterName)
 				}
 			}
 		}
