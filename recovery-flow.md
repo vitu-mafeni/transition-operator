@@ -191,6 +191,11 @@ export REGISTRY_URL="docker.io"
 
 ```
 
+## set heartbeat failure time delay
+```bash
+export HEARTBEAT_FAULT_DELAY=20
+```
+
 // tested with single container
 
 

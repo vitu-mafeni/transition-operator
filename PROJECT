@@ -36,4 +36,13 @@ resources:
   kind: Checkpoint
   path: github.com/vitu1234/transition-operator/api/v1
   version: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: dcnlab.ssu.ac.kr
+  group: transition
+  kind: NodeHealth
+  path: github.com/vitu1234/transition-operator/api/v1
+  version: v1
 version: "3"
