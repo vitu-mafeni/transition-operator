@@ -1037,7 +1037,7 @@ func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Cont
 		if pkg.LiveStatePackage {
 			log.Info("Found live state package from heartbeat", "package", pkg.Name)
 
-			//we have to create checkpoints for this package
+			//we have to create transition on missed node health for this package
 			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, workloadCluster)
 
 			if err != nil {

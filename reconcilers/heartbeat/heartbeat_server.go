@@ -71,7 +71,7 @@ func (s *HeartbeatStore) All() []HeartbeatPayload {
 }
 
 // Node fault detection threshold
-const NodeTimeout = 30 * time.Second // adjust as needed
+const NodeTimeout = 20 * time.Second // adjust as needed
 
 // RunHeartbeatServer starts HTTP server inside your controller
 func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Client, namespace string) {
