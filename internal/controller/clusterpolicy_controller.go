@@ -916,7 +916,7 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 	// 3. Patch ClusterPolicy status
 	// (You already have this flow inside Reconcile, reuse here)
 	log := logf.FromContext(ctx)
-	log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
+	// log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
 
 	// trigger migration
 	if err := r.triggerMigrationFromHeartBeat(ctx, nodeName, clusterName); err != nil {
@@ -929,7 +929,7 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 
 func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Context, nodeName string, clusterName string) error {
 	log := logf.FromContext(ctx)
-	log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
+	// log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
 
 	req := r.Client
 
@@ -970,7 +970,7 @@ func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Cont
 		log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
 		return fmt.Errorf("no ClusterPolicy found for cluster %s", clusterName)
 	}
-	log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
+	// log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {

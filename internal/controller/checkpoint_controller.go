@@ -899,7 +899,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 					{
 						Name:            "prepull",
 						Image:           checkpointImage,
-						Command:         []string{"sleep", "10"}, // Sleep to keep the pod alive for a short time
+						Command:         []string{"sleep", "5"}, // Sleep to keep the pod alive for a short time
 						ImagePullPolicy: corev1.PullAlways,
 					},
 				},
@@ -917,39 +917,60 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 		// log.Info("Created pre-pull pod", "pod", podName, "node", node.Name)
 
 		// Optionally, wait for the Pod to complete and then delete it or delete once image is pulled
-
 		go func(podName string) {
-			defer func() {
-				podToDelete := &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+
+			ticker := time.NewTicker(3 * time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					log.Info("Timeout reached, cleaning up pod", "pod", podName)
+					goto DELETE
+				case <-ticker.C:
+					var currentPod corev1.Pod
+					err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 						Name:      podName,
 						Namespace: "default",
-					},
-				}
-				if err := targetClusterClient.Delete(context.Background(), podToDelete); err != nil {
-					log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
-				} else {
-					log.Info("Deleted pre-pull pod", "pod", podName)
-				}
-			}()
+					}, &currentPod)
+					if err != nil {
+						if errors.IsNotFound(err) {
+							log.Info("Pod already gone", "pod", podName)
+							return
+						}
+						log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
+						goto DELETE
+					}
 
-			// Wait for Pod to complete
-			for {
-				time.Sleep(3 * time.Second)
-				var currentPod corev1.Pod
-				if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
-					Name:      podName,
-					Namespace: "default",
-				}, &currentPod); err != nil {
-					log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
-					return
-				}
-				if currentPod.Status.Phase == corev1.PodSucceeded || currentPod.Status.Phase == corev1.PodFailed {
-					log.Info("Pre-pull pod completed", "pod", podName, "phase", currentPod.Status.Phase)
-					return
+					phase := currentPod.Status.Phase
+					if phase == corev1.PodSucceeded || phase == corev1.PodFailed {
+						log.Info("Pre-pull pod completed", "pod", podName, "phase", phase)
+						goto DELETE
+					}
 				}
 			}
+
+		DELETE:
+			podToDelete := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: "default",
+				},
+			}
+			deleteOpts := []client.DeleteOption{
+				client.PropagationPolicy(metav1.DeletePropagationBackground),
+			}
+			if err := targetClusterClient.Delete(context.Background(), podToDelete, deleteOpts...); err != nil {
+				if !errors.IsNotFound(err) {
+					log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
+				}
+			} else {
+				log.Info("Deleted pre-pull pod", "pod", podName)
+			}
 		}(podName)
+
 	}
 
 	// do the same for the original image to ensure it's also pre-pulled
@@ -1024,37 +1045,59 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 
 			// Optionally, wait for the Pod to complete and then delete it
 			go func(podName string) {
-				defer func() {
-					podToDelete := &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+
+				ticker := time.NewTicker(3 * time.Second)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-ctx.Done():
+						log.Info("Timeout reached, cleaning up pod", "pod", podName)
+						goto DELETE
+					case <-ticker.C:
+						var currentPod corev1.Pod
+						err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 							Name:      podName,
 							Namespace: "default",
-						},
-					}
-					if err := targetClusterClient.Delete(context.Background(), podToDelete); err != nil {
-						log.Error(err, "Failed to delete pre-pull original pod image", "pod", podName)
-					} else {
-						log.Info("Deleted pre-pull original pod image", "pod", podName)
-					}
-				}()
+						}, &currentPod)
+						if err != nil {
+							if errors.IsNotFound(err) {
+								log.Info("Pod already gone", "pod", podName)
+								return
+							}
+							log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
+							goto DELETE
+						}
 
-				// Wait for Pod to complete
-				for {
-					time.Sleep(3 * time.Second)
-					var currentPod corev1.Pod
-					if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
-						Name:      podName,
-						Namespace: "default",
-					}, &currentPod); err != nil {
-						log.Error(err, "Failed to get pre-pull original pod  image status", "pod", podName)
-						return
-					}
-					if currentPod.Status.Phase == corev1.PodSucceeded || currentPod.Status.Phase == corev1.PodFailed {
-						log.Info("Pre-pull original pod image completed", "pod", podName, "phase", currentPod.Status.Phase)
-						return
+						phase := currentPod.Status.Phase
+						if phase == corev1.PodSucceeded || phase == corev1.PodFailed {
+							log.Info("Pre-pull pod completed", "pod", podName, "phase", phase)
+							goto DELETE
+						}
 					}
 				}
+
+			DELETE:
+				podToDelete := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      podName,
+						Namespace: "default",
+					},
+				}
+				deleteOpts := []client.DeleteOption{
+					client.PropagationPolicy(metav1.DeletePropagationBackground),
+				}
+				if err := targetClusterClient.Delete(context.Background(), podToDelete, deleteOpts...); err != nil {
+					if !errors.IsNotFound(err) {
+						log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
+					}
+				} else {
+					log.Info("Deleted pre-pull pod", "pod", podName)
+				}
 			}(podName)
+
 		}
 	}
 
