@@ -74,7 +74,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// println("Reconciling ClusterPolicy:")
 	// fmt.Println("Request:", req)
 	log := logf.FromContext(ctx)
-	log.Info("Reconciling ClusterPolicy")
+	// log.Info("Reconciling ClusterPolicy")
 
 	// check the heartbeat status of nodes frequently to trigger node failure handling from NodeHealth CRs
 	//
@@ -101,7 +101,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
 		if pkg.LiveStatePackage {
-			log.Info("Found live state package", "package", pkg.Name)
+			// log.Info("Found live state package", "package", pkg.Name)
 
 			//we have to create checkpoints for this package
 			err := r.CreateCheckpointForLiveStatePackage(ctx, clusterList, pkg, clusterPolicy)
@@ -151,7 +151,7 @@ func (r *ClusterPolicyReconciler) CreateCheckpointForLiveStatePackage(ctx contex
 func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, cluster *capiv1beta1.Cluster, req ctrl.Request) {
 	//get cluster pods and machines
 	log := logf.FromContext(ctx)
-	log.Info("Performing actions for ClusterPolicy", "policy", clusterPolicy.Name, "cluster", cluster.Name)
+	// log.Info("Performing actions for ClusterPolicy", "policy", clusterPolicy.Name, "cluster", cluster.Name)
 	// Here you can implement the logic to perform actions based on the ClusterPolicy and Cluster
 	// For example, you can update the ClusterPolicy status or perform other operations
 	capiCluster, err := capictrl.GetCapiClusterFromName(ctx, cluster.Name, cluster.Namespace, r.Client)
@@ -226,7 +226,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 			// log.Info("Found pods on machine", "machine", machine.Name, "count", len(podList.Items))
 
 			// Iterate through the pods and take action based on the cluster policy
-			log.Info("Cluster Policy SelectMode", "Mode", string(clusterPolicy.Spec.SelectMode), "node", node.Name, "status", status)
+			// log.Info("Cluster Policy SelectMode", "Mode", string(clusterPolicy.Spec.SelectMode), "node", node.Name, "status", status)
 			r.HandlePodsOnNodeForPolicy(ctx, clusterClient, node, podList, clusterPolicy, req, log)
 
 		}
@@ -234,41 +234,11 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 	}
 }
 
-func (r *ClusterPolicyReconciler) handlePodsInWorkloadCluster(ctx context.Context, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster) {
-	log := logf.FromContext(ctx)
-	// get all pods in the cluster
-	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
-	if err != nil {
-		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
-		return
-	}
-	if !ready {
-		log.Info("Cluster is not ready", "cluster", capiCluster.GetClusterName())
-		return
-	}
-
-	podList := &corev1.PodList{}
-	if err := clusterClient.List(ctx, podList); err != nil {
-		log.Error(err, "Failed to list pods for cluster", "cluster", cluster.Name)
-		return
-	}
-	log.Info("Found pods in cluster", "count", len(podList.Items))
-	//list all pods in the cluster
-	for _, pod := range podList.Items {
-		log.Info("Pod found", "name", pod.Name, "status", pod.Status.Phase, "node", pod.Spec.NodeName)
-
-	}
-
-	//testing git client
-	r.TransitionSelectedWorkloads(ctx, clusterClient, &podList.Items[0], transitionv1.PackageSelector{Name: "test-package"}, &transitionv1.ClusterPolicy{}, ctrl.Request{})
-
-}
-
 // this metthod is called when a machine is not running
 // it should recover the machine by checking the cluster status and applying the cluster policy
 func (r *ClusterPolicyReconciler) handleWorkloadClusterMachine(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, machine *capiv1beta1.Machine, req ctrl.Request) {
 	log := logf.FromContext(ctx)
-	log.Info("Handling machine in workload cluster", "machine", machine.Name, "status", machine.Status.Phase)
+	// log.Info("Handling machine in workload cluster", "machine", machine.Name, "status", machine.Status.Phase)
 
 	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
@@ -360,7 +330,7 @@ func (r *ClusterPolicyReconciler) TransitionAllWorkloads(ctx context.Context, cl
 
 func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
 	log := logf.FromContext(ctx)
-	log.Info("Transitioning Selected workload", "pod", pod.Name, "package", transitionPackage.Name)
+	// log.Info("Transitioning Selected workload", "pod", pod.Name, "package", transitionPackage.Name)
 
 	apiClient := resource.NewAPIPatchingApplicator(r.Client)
 	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
@@ -378,7 +348,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 		log.Error(err, "Failed to get Gitea user info", "response", resp)
 		return
 	}
-	log.Info("Authenticated with Gitea", "username", user.UserName)
+	// log.Info("Authenticated with Gitea", "username", user.UserName)
 
 	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
 	if sourceRepo == "" {
@@ -410,7 +380,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 	}
 
 	helpers.LogRepositories(log, repos)
-	log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
+	// log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
 	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
@@ -426,7 +396,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedWorkloads(ctx context.Contex
 
 	switch transitionPackage.PackageType {
 	case transitionv1.PackageTypeStateful:
-		log.Info("Handling stateful package transition", "package", transitionPackage.Name)
+		// log.Info("Handling stateful package transition", "package", transitionPackage.Name)
 
 		backupMatching := transitionv1.BackupInformation{}
 
@@ -653,37 +623,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 				continue
 				// If you want to enable pod-level checkpoint creation, uncomment the following line
 				// annotations = pod.Annotations
-				/*
-					for _, pkg := range clusterPolicy.Spec.PackageSelectors {
-						if len(pod.Annotations) > 0 {
-							annotations = pod.Annotations
-							if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-								annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
 
-								key := fmt.Sprintf("%s/%s/%s", namespace, pod.Name, pkg.Name) // pod-level dedup
-								if _, seen := processed[key]; seen {
-									continue
-								}
-								processed[key] = struct{}{}
-
-								log.Info("Matched pod-level checkpoint policy",
-									"pod", pod.Name,
-									"package", pkg.Name,
-									"namespace", namespace)
-
-								if pkg.LiveStatePackage {
-									log.Info("Handling Live package", "package", pkg.Name, "pod", pod.Name)
-									r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
-								} else {
-									r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
-								}
-
-								log.Info("pod has annotations and matched -----------")
-								continue
-							}
-						}
-					}
-				*/
 			}
 
 			// --- Step 2: Parent workload annotations ---
@@ -721,7 +661,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 					}
 					processed[key] = struct{}{}
 
-					log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
+					// log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
 					if transitionPackage.LiveStatePackage {
 						log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
 						r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
@@ -742,7 +682,7 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 
 func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
 	log := logf.FromContext(ctx)
-	log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
+	// log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
 
 	apiClient := resource.NewAPIPatchingApplicator(r.Client)
 	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
@@ -760,7 +700,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 		log.Error(err, "Failed to get Gitea user info", "response", resp)
 		return
 	}
-	log.Info("Authenticated with Gitea", "username", user.UserName)
+	// log.Info("Authenticated with Gitea", "username", user.UserName)
 
 	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
 	if sourceRepo == "" {
@@ -792,7 +732,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 	}
 
 	helpers.LogRepositories(log, repos)
-	log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
+	// log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
 	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
@@ -809,7 +749,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 
 	switch transitionPackage.PackageType {
 	case transitionv1.PackageTypeStateful:
-		log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
+		// log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
 
 		backupMatching := transitionv1.BackupInformation{}
 
@@ -868,7 +808,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 			}
 
 			// commit & push changes back to Gitea
-			log.Info("will commit and push changes back to git here")
+			// log.Info("will commit and push changes back to git here")
 			commitMsg := fmt.Sprintf("Update container image %s/%s", associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage)
 
 			username, password, _, err := giteaclient.GetGiteaSecretUserNamePassword(ctx, r.Client)
@@ -880,7 +820,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 				log.Error(err, "failed to commit & push changes")
 			}
 
-			log.Info("Changes committed and pushed", "repo", sourceRepo)
+			// log.Info("Changes committed and pushed", "repo", sourceRepo)
 
 			_, err = helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, r.Client, targetClusterName+"-dr")
 			if err != nil {
@@ -976,7 +916,7 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 	// 3. Patch ClusterPolicy status
 	// (You already have this flow inside Reconcile, reuse here)
 	log := logf.FromContext(ctx)
-	log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
+	// log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
 
 	// trigger migration
 	if err := r.triggerMigrationFromHeartBeat(ctx, nodeName, clusterName); err != nil {
@@ -989,7 +929,7 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 
 func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Context, nodeName string, clusterName string) error {
 	log := logf.FromContext(ctx)
-	log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
+	// log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
 
 	req := r.Client
 
@@ -1030,12 +970,12 @@ func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Cont
 		log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
 		return fmt.Errorf("no ClusterPolicy found for cluster %s", clusterName)
 	}
-	log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
+	// log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
 		if pkg.LiveStatePackage {
-			log.Info("Found live state package from heartbeat", "package", pkg.Name)
+			// log.Info("Found live state package from heartbeat", "package", pkg.Name)
 
 			//we have to create transition on missed node health for this package
 			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, workloadCluster)
@@ -1066,7 +1006,7 @@ func (r *ClusterPolicyReconciler) mapClusterToClusterPolicy(ctx context.Context,
 
 func (r *ClusterPolicyReconciler) GetWorkloadClusterClientByName(ctx context.Context, clusterName string) (*capictrl.Capi, error, resource.APIPatchingApplicator) {
 	log := logf.FromContext(ctx)
-	log.Info("Getting CAPI client for cluster", "clusterName", clusterName)
+	// log.Info("Getting CAPI client for cluster", "clusterName", clusterName)
 
 	capiCluster, err := capictrl.GetCapiClusterFromName(ctx, clusterName, "default", r.Client)
 	if err != nil {

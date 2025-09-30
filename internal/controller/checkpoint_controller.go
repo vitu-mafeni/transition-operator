@@ -420,7 +420,7 @@ func (r *CheckpointReconciler) reconcileNormal(ctx context.Context, workloadClie
 	}
 
 	r.scheduledJobs[backupKey] = entryID
-	log.Info("Scheduled checkpoint job", "backup", backup.Name, "schedule", backup.Spec.Schedule)
+	// log.Info("Scheduled checkpoint job", "backup", backup.Name, "schedule", backup.Spec.Schedule)
 
 	// Also perform immediate checkpoint on first reconcile
 	if backup.Status.LastCheckpointTime == nil {
@@ -455,14 +455,14 @@ func (r *CheckpointReconciler) reconcileDelete(ctx context.Context, backup *tran
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Successfully deleted Checkpoint", "name", backup.Name)
+	// log.Info("Successfully deleted Checkpoint", "name", backup.Name)
 	return ctrl.Result{}, nil
 }
 
 // performCheckpoint performs the actual checkpoint operation
 func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadClient client.Client, backup *transitionv1.Checkpoint, kubeletURL, nodeName string, restConfig *rest.Config) error {
 	log := logf.FromContext(ctx)
-	log.Info("Starting checkpoint operation", "backup", backup.Name, "pod", backup.Spec.PodRef.Name)
+	// log.Info("Starting checkpoint operation", "backup", backup.Name, "pod", backup.Spec.PodRef.Name)
 
 	// Get pod to ensure it exists and is ready
 	var pod corev1.Pod
@@ -474,7 +474,7 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 	}
 
 	if pod.Status.Phase != corev1.PodRunning {
-		log.Info("Pod is not running, skipping checkpoint", "pod", pod.Name, "phase", pod.Status.Phase)
+		// log.Info("Pod is not running, skipping checkpoint", "pod", pod.Name, "phase", pod.Status.Phase)
 		return nil
 	}
 
@@ -513,7 +513,7 @@ func (r *CheckpointReconciler) performCheckpoint(ctx context.Context, workloadCl
 // checkpointContainer performs checkpoint operation for a single container
 func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *transitionv1.Checkpoint, pod *corev1.Pod, container corev1.Container, kubeletURL, nodeName string, restConfig *rest.Config) error {
 	log := logf.FromContext(ctx)
-	log.Info("Checkpointing container", "container", container.Name, "pod", pod.Name)
+	// log.Info("Checkpointing container", "container", container.Name, "pod", pod.Name)
 
 	backup.Status.OriginalImage = container.Image
 	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
@@ -542,7 +542,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 
 	// log.Info("Checkpoint created", "checkpointPath", checkpointPath)
 
-	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", container.Image)
+	// log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", container.Image)
 
 	//delay for a few seconds to ensure the file is available
 	objectName := filepath.Base(checkpointPath)
@@ -551,7 +551,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	// fileExists, err := miniohelper.FileExistsInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath)
 	// Wait until file is in MinIO before proceeding
 	if err := miniohelper.WaitForFileInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath, 30*time.Second, 500*time.Millisecond); err != nil {
-		log.Info(fmt.Sprintf("File did not appear in MinIO in time: %v", err))
+		// log.Info(fmt.Sprintf("File did not appear in MinIO in time: %v", err))
 		backup.Status.OriginalImage = container.Image
 		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 		backup.Status.Phase = transitionv1.CheckpointPhaseFailed
@@ -651,7 +651,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 		// Not a fatal error, just log
 	}
 
-	log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", imageName)
+	// log.Info("Successfully checkpointed and pushed container image", "container", container.Name, "image", imageName)
 	backup.Status.OriginalImage = baseImage
 	backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
 	backup.Status.Phase = transitionv1.CheckpointPhaseCompleted
@@ -746,7 +746,7 @@ func (r *CheckpointReconciler) buildCheckpointImage(checkpointPath, imageName, b
 		return fmt.Errorf("checkpoint file does not exist: %s (this should not happen after findCheckpointFile)", fullCheckpointPath)
 	}
 
-	log.Info("Building checkpoint image", "checkpointFile", fullCheckpointPath, "imageName", imageName, "baseImage", baseImage)
+	// log.Info("Building checkpoint image", "checkpointFile", fullCheckpointPath, "imageName", imageName, "baseImage", baseImage)
 
 	// Step 1: Create new container from scratch
 	cmd := exec.Command("buildah", "from", "scratch")
@@ -831,7 +831,7 @@ func (r *CheckpointReconciler) DeleteBuildImage(imageName string) error {
 // PreDownloadImageToTargetCluster pre-downloads the image to all nodes in the target cluster to avoid pull delays during recovery
 func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Context, checkpointImage, originalImage string, checkpoint transitionv1.Checkpoint) error {
 	log := logf.FromContext(ctx)
-	log.Info("Pre-downloading image to target cluster nodes", "image", checkpointImage, "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
+	// log.Info("Pre-downloading image to target cluster nodes", "image", checkpointImage, "targetCluster", checkpoint.Spec.TargetClusterRef.Name)
 
 	// Get target cluster client
 	clusterResult, targetClusterClient, _, err := capictrl.GetWorkloadClusterClient(ctx, r.Client, checkpoint.Spec.TargetClusterRef.Name)
@@ -878,7 +878,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 				log.Error(err, "Failed to delete existing pre-pull pod", "pod", podName, "node", node.Name)
 				return fmt.Errorf("failed to delete existing pre-pull pod %s: %w", podName, err)
 			}
-			log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
+			// log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
 			// Wait a bit for deletion to complete
 			time.Sleep(3 * time.Second)
 		} else if !errors.IsNotFound(err) {
@@ -899,7 +899,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 					{
 						Name:            "prepull",
 						Image:           checkpointImage,
-						Command:         []string{"sleep", "30"}, // Sleep to keep the pod alive for a short time
+						Command:         []string{"sleep", "5"}, // Sleep to keep the pod alive for a short time
 						ImagePullPolicy: corev1.PullAlways,
 					},
 				},
@@ -914,42 +914,63 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 			}
 		}
 
-		log.Info("Created pre-pull pod", "pod", podName, "node", node.Name)
+		// log.Info("Created pre-pull pod", "pod", podName, "node", node.Name)
 
 		// Optionally, wait for the Pod to complete and then delete it or delete once image is pulled
-
 		go func(podName string) {
-			defer func() {
-				podToDelete := &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+
+			ticker := time.NewTicker(3 * time.Second)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					log.Info("Timeout reached, cleaning up pod", "pod", podName)
+					goto DELETE
+				case <-ticker.C:
+					var currentPod corev1.Pod
+					err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 						Name:      podName,
 						Namespace: "default",
-					},
-				}
-				if err := targetClusterClient.Delete(context.Background(), podToDelete); err != nil {
-					log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
-				} else {
-					log.Info("Deleted pre-pull pod", "pod", podName)
-				}
-			}()
+					}, &currentPod)
+					if err != nil {
+						if errors.IsNotFound(err) {
+							log.Info("Pod already gone", "pod", podName)
+							return
+						}
+						log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
+						goto DELETE
+					}
 
-			// Wait for Pod to complete
-			for {
-				time.Sleep(3 * time.Second)
-				var currentPod corev1.Pod
-				if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
-					Name:      podName,
-					Namespace: "default",
-				}, &currentPod); err != nil {
-					log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
-					return
-				}
-				if currentPod.Status.Phase == corev1.PodSucceeded || currentPod.Status.Phase == corev1.PodFailed {
-					log.Info("Pre-pull pod completed", "pod", podName, "phase", currentPod.Status.Phase)
-					return
+					phase := currentPod.Status.Phase
+					if phase == corev1.PodSucceeded || phase == corev1.PodFailed {
+						log.Info("Pre-pull pod completed", "pod", podName, "phase", phase)
+						goto DELETE
+					}
 				}
 			}
+
+		DELETE:
+			podToDelete := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      podName,
+					Namespace: "default",
+				},
+			}
+			deleteOpts := []client.DeleteOption{
+				client.PropagationPolicy(metav1.DeletePropagationBackground),
+			}
+			if err := targetClusterClient.Delete(context.Background(), podToDelete, deleteOpts...); err != nil {
+				if !errors.IsNotFound(err) {
+					log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
+				}
+			} else {
+				log.Info("Deleted pre-pull pod", "pod", podName)
+			}
 		}(podName)
+
 	}
 
 	// do the same for the original image to ensure it's also pre-pulled
@@ -1005,7 +1026,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 						{
 							Name:    "prepull",
 							Image:   originalImage,
-							Command: []string{"sleep", "30"}, // Sleep to keep the pod alive for a short time
+							Command: []string{"sleep", "10"}, // Sleep to keep the pod alive for a short time
 							// ImagePullPolicy: corev1.PullAlways,
 						},
 					},
@@ -1020,41 +1041,63 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 				}
 			}
 
-			log.Info("Created pre-pull original pod image", "pod", podName, "node", node.Name)
+			// log.Info("Created pre-pull original pod image", "pod", podName, "node", node.Name)
 
 			// Optionally, wait for the Pod to complete and then delete it
 			go func(podName string) {
-				defer func() {
-					podToDelete := &corev1.Pod{
-						ObjectMeta: metav1.ObjectMeta{
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+
+				ticker := time.NewTicker(3 * time.Second)
+				defer ticker.Stop()
+
+				for {
+					select {
+					case <-ctx.Done():
+						log.Info("Timeout reached, cleaning up pod", "pod", podName)
+						goto DELETE
+					case <-ticker.C:
+						var currentPod corev1.Pod
+						err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 							Name:      podName,
 							Namespace: "default",
-						},
-					}
-					if err := targetClusterClient.Delete(context.Background(), podToDelete); err != nil {
-						log.Error(err, "Failed to delete pre-pull original pod image", "pod", podName)
-					} else {
-						log.Info("Deleted pre-pull original pod image", "pod", podName)
-					}
-				}()
+						}, &currentPod)
+						if err != nil {
+							if errors.IsNotFound(err) {
+								log.Info("Pod already gone", "pod", podName)
+								return
+							}
+							log.Error(err, "Failed to get pre-pull pod status", "pod", podName)
+							goto DELETE
+						}
 
-				// Wait for Pod to complete
-				for {
-					time.Sleep(3 * time.Second)
-					var currentPod corev1.Pod
-					if err := targetClusterClient.Get(context.Background(), types.NamespacedName{
-						Name:      podName,
-						Namespace: "default",
-					}, &currentPod); err != nil {
-						log.Error(err, "Failed to get pre-pull original pod  image status", "pod", podName)
-						return
-					}
-					if currentPod.Status.Phase == corev1.PodSucceeded || currentPod.Status.Phase == corev1.PodFailed {
-						log.Info("Pre-pull original pod image completed", "pod", podName, "phase", currentPod.Status.Phase)
-						return
+						phase := currentPod.Status.Phase
+						if phase == corev1.PodSucceeded || phase == corev1.PodFailed {
+							log.Info("Pre-pull pod completed", "pod", podName, "phase", phase)
+							goto DELETE
+						}
 					}
 				}
+
+			DELETE:
+				podToDelete := &corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      podName,
+						Namespace: "default",
+					},
+				}
+				deleteOpts := []client.DeleteOption{
+					client.PropagationPolicy(metav1.DeletePropagationBackground),
+				}
+				if err := targetClusterClient.Delete(context.Background(), podToDelete, deleteOpts...); err != nil {
+					if !errors.IsNotFound(err) {
+						log.Error(err, "Failed to delete pre-pull pod", "pod", podName)
+					}
+				} else {
+					log.Info("Deleted pre-pull pod", "pod", podName)
+				}
 			}(podName)
+
 		}
 	}
 

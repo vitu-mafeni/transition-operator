@@ -94,7 +94,7 @@ func PerformWorkloadClusterCheckpointAction(
 			}
 			processed[key] = struct{}{}
 
-			log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
+			// log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
 			if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
 				log.Error(err, "Failed to create Checkpoint CR for workload/pod resource",
 					"workload", workloadID,
@@ -196,13 +196,13 @@ func CreateCheckpointCR(
 	if err := client.Create(ctx, checkpoint); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// Just log and skip, no error returned
-			log.Info("Checkpoint CR already exists, skipping creation", "name", checkpoint.Name)
+			// log.Info("Checkpoint CR already exists, skipping creation", "name", checkpoint.Name)
 			return nil
 		}
 		log.Error(err, "Failed to create Checkpoint CR", "name", checkpoint.Name)
 		return err
 	}
 
-	log.Info("Created Checkpoint CR", "name", checkpoint.Name)
+	// log.Info("Created Checkpoint CR", "name", checkpoint.Name)
 	return nil
 }

@@ -94,11 +94,17 @@ func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Clien
 
 		// update store
 		store.Update(hb)
-		log.Info("heartbeat received from %s (%s)", hb.NodeName, hb.IPAddress)
+		log.Info("heartbeat received",
+			"nodeName", hb.NodeName,
+			"ip", hb.IPAddress,
+		)
 
 		// upsert NodeHealth CR as Healthy
 		if err := UpsertNodeHealth(r.Context(), k8sClient, namespace, hb, "Healthy"); err != nil {
-			log.Error(err, "failed to upsert NodeHealth for %s", hb.NodeName+" in cluster "+hb.ClusterName)
+			log.Error(err, "failed to upsert NodeHealth",
+				"nodeName", hb.NodeName,
+				"clusterName", hb.ClusterName,
+			)
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -112,7 +118,9 @@ func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Clien
 	})
 
 	go func() {
-		log.Info("heartbeat server listening on %s", addr)
+		log.Info("heartbeat server listening",
+			"addr", addr,
+		)
 		if err := http.ListenAndServe(addr, mux); err != nil {
 			log.Error(err, "heartbeat server error")
 		}
@@ -183,13 +191,25 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 		nodes := store.All()
 		for _, hb := range nodes {
 			if now.Sub(hb.ReceivedAt) > NodeTimeout {
-				log.Info("Triggering ClusterPolicy reconciliation due to node %s being Unhealthy", hb.NodeName+" in cluster "+hb.ClusterName)
+				log.Info("Triggering ClusterPolicy reconciliation due to unhealthy node",
+					"nodeName", hb.NodeName,
+					"clusterName", hb.ClusterName,
+				)
+
 				// Trigger ClusterPolicy reconciliation to handle node failure
-				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(context.Background(), hb.NodeName, hb.ClusterName); err != nil {
-					log.Error(err, "failed to trigger ClusterPolicy reconciliation for %s", hb.NodeName+" in cluster "+hb.ClusterName)
+				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(
+					context.Background(), hb.NodeName, hb.ClusterName); err != nil {
+					log.Error(err, "failed to trigger ClusterPolicy reconciliation",
+						"nodeName", hb.NodeName,
+						"clusterName", hb.ClusterName,
+					)
 				}
+
 				if err := UpsertNodeHealth(context.Background(), k8sClient, namespace, hb, "Unhealthy"); err != nil {
-					log.Error(err, "failed to update NodeHealth for %s", hb.NodeName+" in cluster "+hb.ClusterName)
+					log.Error(err, "failed to update NodeHealth",
+						"nodeName", hb.NodeName,
+						"clusterName", hb.ClusterName,
+					)
 				}
 			}
 		}

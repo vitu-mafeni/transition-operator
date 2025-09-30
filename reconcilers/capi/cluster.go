@@ -245,7 +245,7 @@ func GetWorkloadClusterClient(
 		return ctrl.Result{}, nil, nil, fmt.Errorf("no matching cluster found for %s", clusterName)
 	}
 
-	fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
+	// fmt.Printf("DEBUG: Found CAPI cluster: %s\n", capiCluster.GetClusterName())
 
 	clusterClient, restConfig, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {

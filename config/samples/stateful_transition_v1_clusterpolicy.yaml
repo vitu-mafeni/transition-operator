@@ -19,7 +19,7 @@ spec:
         #   backupType: Manual # Manual, Schedule
         - name: my-test-backup # Schedule Name
           backupType: Schedule # Manual, Schedule
-          schedulePeriod: "*/1 * * * *" # cron format
+          schedulePeriod: "*/3 * * * *" # cron format
   targetClusterPolicy:
     preferClusters:
       - name: migrationdev
