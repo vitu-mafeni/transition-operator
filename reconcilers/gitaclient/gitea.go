@@ -431,7 +431,7 @@ func CommitAndPush(ctx context.Context, cloneDir, branch, repoURL, userName, pas
 func TriggerArgoCDSyncWithKubeClient(k8sClient client.Client, appName, namespace string) error {
 	ctx := context.TODO()
 
-	fmt.Printf("Triggering ArgoCD sync for application %q in namespace %q\n", appName, namespace)
+	// fmt.Printf("Triggering ArgoCD sync for application %q in namespace %q\n", appName, namespace)
 
 	// Get the current Application object
 	var app argov1alpha1.Application

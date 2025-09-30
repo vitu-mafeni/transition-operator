@@ -37,7 +37,7 @@ func TriggerTransitionOnMissedNodeHealth(
 		return err
 	}
 	if workloadClusterClient == nil {
-		log.Info("Cluster client not available yet in ready state", "cluster", workloadCluster.Name)
+		// log.Info("Cluster client not available yet in ready state", "cluster", workloadCluster.Name)
 		return fmt.Errorf("workload cluster %q client not available yet", workloadCluster.Name)
 	}
 
@@ -60,7 +60,7 @@ func TriggerTransitionOnMissedNodeHealth(
 		// --- Step 1: Pod-level annotations ---
 		if !hasOwner {
 			// If no owner, skip to avoid pod-level checkpoint creation
-			log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
+			// log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
 			continue
 
 		}
@@ -97,7 +97,7 @@ func TriggerTransitionOnMissedNodeHealth(
 			}
 			processed[key] = struct{}{}
 
-			log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
+			// log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
 			if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
 				log.Error(err, "Failed to create Checkpoint CR for workload/pod resource",
 					"workload", workloadID,
@@ -117,7 +117,7 @@ func TriggerTransitionOnMissedNodeHealth(
 
 func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, workloadCluster *capiv1beta1.Cluster) {
 	log := logf.FromContext(ctx)
-	log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
+	// log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
 
 	apiClient := resource.NewAPIPatchingApplicator(mgmtClient)
 	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
@@ -135,7 +135,7 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 		log.Error(err, "Failed to get Gitea user info", "response", resp)
 		return
 	}
-	log.Info("Authenticated with Gitea", "username", user.UserName)
+	// log.Info("Authenticated with Gitea", "username", user.UserName)
 
 	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
 	if sourceRepo == "" {
@@ -167,7 +167,7 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 	}
 
 	helpers.LogRepositories(log, repos)
-	log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
+	// log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
 	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
@@ -184,7 +184,7 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 
 	switch transitionPackage.PackageType {
 	case transitionv1.PackageTypeStateful:
-		log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
+		// log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
 
 		backupMatching := transitionv1.BackupInformation{}
 
@@ -243,7 +243,7 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 			}
 
 			// commit & push changes back to Gitea
-			log.Info("will commit and push changes back to git here")
+			// log.Info("will commit and push changes back to git here")
 			commitMsg := fmt.Sprintf("Update container image %s/%s", associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage)
 
 			username, password, _, err := giteaclient.GetGiteaSecretUserNamePassword(ctx, mgmtClient)
@@ -255,7 +255,7 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 				log.Error(err, "failed to commit & push changes")
 			}
 
-			log.Info("Changes committed and pushed", "repo", sourceRepo)
+			// log.Info("Changes committed and pushed", "repo", sourceRepo)
 
 			_, err = helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, mgmtClient, targetClusterName+"-dr")
 			if err != nil {
