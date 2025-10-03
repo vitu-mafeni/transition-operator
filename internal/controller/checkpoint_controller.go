@@ -358,6 +358,7 @@ func (r *CheckpointReconciler) NewRegistryClient(
 			secretNamespace = registryConfig.SecretRef.Namespace
 		}
 	}
+	workloadClient = r.Client
 
 	// Get registry credentials from workload cluster secret
 	var secret corev1.Secret

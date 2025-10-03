@@ -11,6 +11,7 @@ import (
 	"github.com/vitu1234/transition-operator/internal/controller"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -196,12 +197,24 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 					"clusterName", hb.ClusterName,
 				)
 
+				// get all machines
+				machine := &capiv1beta1.Machine{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: hb.NodeName}, machine)
+				if err != nil {
+					log.Error(err, "could not get capi machine with the name "+hb.NodeName)
+				}
+
+				clusterName := ""
+				if machine != nil {
+					clusterName = machine.Spec.ClusterName
+				}
+
 				// Trigger ClusterPolicy reconciliation to handle node failure
 				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(
-					context.Background(), hb.NodeName, hb.ClusterName); err != nil {
+					context.Background(), hb.NodeName, clusterName); err != nil {
 					log.Error(err, "failed to trigger ClusterPolicy reconciliation",
 						"nodeName", hb.NodeName,
-						"clusterName", hb.ClusterName,
+						"clusterName", clusterName,
 					)
 				}
 
