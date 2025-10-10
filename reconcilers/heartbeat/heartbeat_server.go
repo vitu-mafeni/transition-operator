@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -72,7 +73,7 @@ func (s *HeartbeatStore) All() []HeartbeatPayload {
 }
 
 // Node fault detection threshold
-const NodeTimeout = 20 * time.Second // adjust as needed
+var NodeTimeout = getenvDuration("HEARTBEAT_FAULT_DELAY", 20*time.Second)
 
 // RunHeartbeatServer starts HTTP server inside your controller
 func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Client, namespace string) {
@@ -126,6 +127,15 @@ func RunHeartbeatServer(store *HeartbeatStore, addr string, k8sClient ctrl.Clien
 			log.Error(err, "heartbeat server error")
 		}
 	}()
+}
+
+func getenvDuration(key string, defaultVal time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
+		}
+	}
+	return defaultVal
 }
 
 // UpsertNodeHealth creates or updates a NodeHealth CR
