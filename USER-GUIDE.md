@@ -2,11 +2,11 @@
 
 When creating workload clusters keep a minimum of the following package variants
 
-![image.png](image.png)
+![image.png](images/image.png)
 
 For azure cluster, the “example” word should be replaced with the name of the cluster, in this case “cluster1-azure”
 
-![image.png](image%201.png)
+![image.png](images/image%201.png)
 
 Add in the environment variables matching the azure account you are using
 
@@ -350,8 +350,8 @@ kubectl port-forward svc/video-service --address 0.0.0.0 30080:8080 --kubeconfig
 
 Adding the video application to the catalog
 
-![image.png](image%202.png)
+![image.png](images/image%202.png)
 
 The controller uses the annotations as shown below to find the packages to transition
 
-![image.png](image%203.png)
+![image.png](images/image%203.png)
