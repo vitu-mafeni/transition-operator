@@ -128,6 +128,26 @@ Host azure-target-box
 
 ### ON THE MANAGEMENT CLUSTER
 
+install azure CLI
+```bash
+az identity create \
+  --name cloud-provider-user-identity \
+  --resource-group capi-test 
+```
+
+Login to azure using the CLI
+
+```bash
+	az login
+```
+
+Create the identity group in the target resource group
+
+```bash
+az identity create \
+  --name cloud-provider-user-identity \
+  --resource-group capi-test 
+```
 create a gitea secret with your gitea credentials 
 
 ```bash
