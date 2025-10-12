@@ -300,9 +300,10 @@ make install
 make run
 ```
 
-In the operator, there is the clusterpolicy resource. The configurations should be changed, matching your environment
+In the operator, there is the clusterpolicy resource which has to be applied on the management cluster. The configurations should be changed, matching your environment
 
-```yaml
+```bash
+cat > /tmp/cluster-policy.yaml <<EOF
 apiVersion: transition.dcnlab.ssu.ac.kr/v1
 kind: ClusterPolicy
 metadata:
@@ -326,6 +327,9 @@ spec:
       - name: cluster2-aws
         repoType: git
         weight: 100
+EOF
+
+kubectl apply -f /tmp/cluster-policy.yaml
 
 ```
 
