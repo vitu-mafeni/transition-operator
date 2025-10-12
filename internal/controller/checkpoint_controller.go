@@ -809,9 +809,22 @@ func (rc *RegistryClient) PushImage(imageName string) error {
 func (rc *RegistryClient) login() error {
 	// Use the registry URL from the secret (not extracted from image name)
 	// For Docker Hub, this should be "docker.io" or can be empty
+	//get registry url from secret
+	if rc.registry == "" {
+		rc.registry = "docker.io"
+	}
+
+	if rc.username == "" {
+		logf.Log.Error(fmt.Errorf("empty username"), "Registry username is empty")
+		return fmt.Errorf("registry username is empty")
+	}
+	if rc.password == "" {
+		logf.Log.Error(fmt.Errorf("empty password"), "Registry password is empty")
+		return fmt.Errorf("registry password is empty")
+	}
 
 	// Login using buildah
-	cmd := exec.Command("buildah", "login", "-u", "vitu1", "-p", "dckr_pat_6dfNrJ77W6R7W4cOVzi_u_FkKec", rc.registry)
+	cmd := exec.Command("buildah", "login", "-u", rc.username, "-p", rc.password, rc.registry)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to login to registry %s: %w", rc.registry, err)
 	}
