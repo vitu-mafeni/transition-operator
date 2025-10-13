@@ -85,17 +85,17 @@ helm install --repo https://raw.githubusercontent.com/kubernetes-sigs/cloud-prov
 ### Install CRIU and align runc
 
 ```bash
-curl -fsSL https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
-echo "deb http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/ ./" | sudo tee /etc/apt/sources.list.d/criu.list
-sudo apt-get update
-sudo apt-get install criu -y
+curl -fsSL https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
+echo "deb http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/ ./" | tee /etc/apt/sources.list.d/criu.list
+apt-get update
+apt-get install criu -y
 
 
 # upgrade runc
 cd /tmp
 curl -L -o runc.new https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64
-sudo mv /tmp/runc.new /usr/local/sbin/runc
-sudo chmod +x /usr/local/sbin/runc
+mv /tmp/runc.new /usr/local/sbin/runc
+chmod +x /usr/local/sbin/runc
 ```
 
 ### Create /etc/criu/runc.conf
@@ -129,7 +129,7 @@ runc --version
 ### Enable kubelet feature gate (checkpointing)
 
 ```bash
-sudo nano /etc/default/kubelet
+nano /etc/default/kubelet
 # Append or merge the following flag (or use your distro's kubelet drop-in)
 KUBELET_EXTRA_ARGS="--feature-gates=ContainerCheckpoint=true"
 ```
@@ -137,7 +137,7 @@ KUBELET_EXTRA_ARGS="--feature-gates=ContainerCheckpoint=true"
 Restart kubelet and containerd:
 
 ```bash
-sudo systemctl restart kubelet containerd
+systemctl restart kubelet containerd
 ```
 
 ---
@@ -147,13 +147,13 @@ sudo systemctl restart kubelet containerd
 To copy SSH keys from capi to root:
 
 ```bash
-sudo cp -r /home/capi/.ssh /root/
+cp -r /home/capi/.ssh /root/
 ```
 
 Enable root SSH in /etc/ssh/sshd_config (PermitRootLogin yes), then:
 
 ```bash
-sudo systemctl restart ssh || sudo service sshd restart
+systemctl restart ssh || service sshd restart
 ```
 
 VS Code SSH config example:
@@ -178,7 +178,7 @@ Host azure-target-box
 Install Azure CLI:
 
 ```bash
-curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | bash
 ```
 
 Login:
@@ -461,6 +461,7 @@ Controller annotations used to discover packages
 
 ## Notes and Best Practices
 
+- All commands are installed and run with root privileges.
 - Run the operator and node agent with root privileges.
 - Keep software versions identical between source and destination nodes.
 - Validate Pod CIDR consistency between CAPI resources and your CNI.
