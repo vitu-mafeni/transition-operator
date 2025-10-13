@@ -296,6 +296,7 @@ EOF
 
 kubectl apply -f /tmp/checkpoint-sa.yaml --kubeconfig <source-cluster>
 ```
+*** NOTE: source-cluster is the cluster we would like to transition from.
 
 Go into the controller cloned and run the following commands
 
