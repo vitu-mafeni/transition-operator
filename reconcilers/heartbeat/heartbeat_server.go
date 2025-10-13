@@ -261,7 +261,7 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(
 					context.Background(), hb.NodeName, clusterName,
 				); err != nil {
-					log.Error(err, "failed to trigger ClusterPolicy reconciliation",
+					log.Error(err, "ClusterPolicy reconciliation - node health",
 						"nodeName", hb.NodeName,
 						"clusterName", clusterName,
 					)

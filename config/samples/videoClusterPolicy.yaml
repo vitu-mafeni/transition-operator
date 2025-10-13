@@ -1,0 +1,24 @@
+apiVersion: transition.dcnlab.ssu.ac.kr/v1
+kind: ClusterPolicy
+metadata:
+  name: clusterpolicy-sample
+spec:
+  clusterSelector:
+    name: cluster1-azure
+    repo:  http://47.128.152.203:30556/nephio/cluster1-azure.git # repo where the cluster workloads is defined
+    repoType: git
+  selectMode: Specific
+  packageSelectors:
+    - name: video # Package Name
+      packagePath: video # where the package is in the repo
+      packageType: Stateful # Stateless, Stateful
+      liveStatePackage: true # tells the operator to use CRIU
+      backupInformation:
+        - name: my-test-backup # Schedule Name
+          backupType: Schedule # Manual, Schedule
+          schedulePeriod: "*/2 * * * *" # cron format
+  targetClusterPolicy:
+    preferClusters:
+      - name: cluster2-aws
+        repoType: git
+        weight: 100
