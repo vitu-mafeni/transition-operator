@@ -74,11 +74,8 @@ kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/
 For Azure, install the cloud provider controller and set a matching clusterCIDR. Adjust if your actual pod CIDR differs.
 
 ```bash
-helm install --repo [https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo](https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo) cloud-provider-azure \
-  --generate-name \
-  --set infra.clusterName=${CLUSTER_NAME} \
-  --set cloudControllerManager.clusterCIDR="192.168.0.0/16" \
-  --kubeconfig <kubeconfig-file>
+helm install --repo https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo cloud-provider-azure --generate-name --set infra.clusterName=${CLUSTER_NAME} --set cloudControllerManager.clusterCIDR="192.168.0.0/16" --kubeconfig <kubeconfig-file> 
+
 ```
 
 ---
@@ -88,15 +85,16 @@ helm install --repo [https://raw.githubusercontent.com/kubernetes-sigs/cloud-pro
 ### Install CRIU and align runc
 
 ```bash
-curl -fsSL [https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key](https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key) | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
-echo "deb [http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/](http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/) ./" | sudo tee /etc/apt/sources.list.d/criu.list
+curl -fsSL https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
+echo "deb http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/ ./" | sudo tee /etc/apt/sources.list.d/criu.list
 sudo apt-get update
-sudo apt-get install -y criu
+sudo apt-get install criu -y
 
-# Upgrade runc and ensure the same version on all nodes
+
+# upgrade runc
 cd /tmp
-curl -L -o [runc.new](http://runc.new) [https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64](https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64)
-sudo mv /tmp/[runc.new](http://runc.new) /usr/local/sbin/runc
+curl -L -o runc.new https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64
+sudo mv /tmp/runc.new /usr/local/sbin/runc
 sudo chmod +x /usr/local/sbin/runc
 ```
 
@@ -224,7 +222,7 @@ Follow the official guide: [https://go.dev/doc/install](https://go.dev/doc/insta
 
 ```bash
 mkdir -p ~/projects && cd ~/projects
-git clone [https://github.com/vitu-mafeni/transition-operator.git](https://github.com/vitu-mafeni/transition-operator.git)
+git clone https://github.com/vitu-mafeni/transition-operator.git
 ```
 
 ### Environment variables
@@ -244,10 +242,10 @@ export MINIO_BUCKET="checkpoints"
 export REPOSITORY="vitu1"
 export SECRET_NAME_REF="reg-credentials"
 export SECRET_NAMESPACE_REF="default"
-export REGISTRY_URL="[docker.io](http://docker.io)"
+export REGISTRY_URL="http://docker.io"
 export HEARTBEAT_FAULT_DELAY=20
 
-export GIT_SERVER_URL="[http://47.129.115.173:31413](http://47.129.115.173:31413)"
+export GIT_SERVER_URL="http://47.129.115.173:31413"
 export GIT_SECRET_NAME="git-user-secret"
 export GIT_SECRET_NAMESPACE="default"
 export POD_NAMESPACE="default"
@@ -257,26 +255,24 @@ export REGISTRY_PASSWORD="PUT_PASSWORD_HERE" # Use a Docker Hub access token
 ### Create registry credentials secret
 
 ```bash
-username_b64=$(echo -n "$REPOSITORY" | base64 -w 0)
-password_b64=$(echo -n "$REGISTRY_PASSWORD" | base64 -w 0)
-registry_b64=$(echo -n "$REGISTRY_URL" | base64 -w 0)
-
-cat > /tmp/registry-credentials.yaml <<'EOF'
+ # Base64 ecredentials
+ username_b64=$(echo -n "$REPOSITORY" | base64 -w 0) 
+ password_b64=$(echo -n "$REGISTRY_PASSWORD" | base64 -w 0)
+ registry_b64=$(echo -n "$REGISTRY_URL" | base64 -w 0) # docker.io
+    
+# Create secret manifest
+  
+cat > /tmp/registry-credentials.yaml <<EOF
 apiVersion: v1
 kind: Secret
 metadata:
   name: reg-credentials
-  namespace: default
 type: Opaque
 data:
-  username: REPLACE_USERNAME_B64
-  password: REPLACE_PASSWORD_B64
-  registry: REPLACE_REGISTRY_B64
+  username: $username_b64
+  password: $password_b64
+  registry: $registry_b64
 EOF
-
-sed -i "s/REPLACE_USERNAME_B64/$username_b64/" /tmp/registry-credentials.yaml
-sed -i "s/REPLACE_PASSWORD_B64/$password_b64/" /tmp/registry-credentials.yaml
-sed -i "s/REPLACE_REGISTRY_B64/$registry_b64/" /tmp/registry-credentials.yaml
 
 kubectl apply -f /tmp/registry-credentials.yaml
 ```
@@ -288,14 +284,14 @@ kubectl apply -f /tmp/registry-credentials.yaml
 - source-cluster is the cluster where we will transition from
 
 ```bash
-cat > /tmp/checkpoint-sa.yaml <<'EOF'
+cat > /tmp/checkpoint-sa.yaml <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: checkpoint-sa
   namespace: default
 ---
-apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
+apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: checkpoint-role
@@ -311,7 +307,7 @@ rules:
     resources: ["nodes/proxy"]
     verbs: ["create", "get"]
 ---
-apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: checkpoint-rolebinding
@@ -323,9 +319,9 @@ subjects:
 roleRef:
   kind: Role
   name: checkpoint-role
-  apiGroup: [rbac.authorization.k8s.io](http://rbac.authorization.k8s.io)
+  apiGroup: rbac.authorization.k8s.io
 ---
-apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: checkpoint-sa-nodes-checkpoint
@@ -339,8 +335,10 @@ rules:
   - apiGroups: [""]
     resources: ["nodes/proxy"]
     verbs: ["create", "get"]
+
+
 ---
-apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: checkpoint-sa-nodes-checkpoint-binding
@@ -351,7 +349,7 @@ subjects:
 roleRef:
   kind: ClusterRole
   name: checkpoint-sa-nodes-checkpoint
-  apiGroup: [rbac.authorization.k8s.io](http://rbac.authorization.k8s.io)
+  apiGroup: rbac.authorization.k8s.io
 EOF
 
 # Apply to the source cluster from which you will transition
@@ -376,30 +374,31 @@ Update values to match your environment, then apply to the management cluster.
 
 ```bash
 cat > /tmp/cluster-policy.yaml <<'EOF'
-apiVersion: [transition.dcnlab.ssu.ac.kr/v1](http://transition.dcnlab.ssu.ac.kr/v1)
+apiVersion: transition.dcnlab.ssu.ac.kr/v1
 kind: ClusterPolicy
 metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
     name: cluster1-azure
-    repo: [http://13.212.242.157:31410/nephio/cluster1-azure.git](http://13.212.242.157:31410/nephio/cluster1-azure.git) # repo where the cluster workloads are defined
+    repo: http://13.212.242.157:31410/nephio/cluster1-azure.git # repo where the cluster workloads is defined
     repoType: git
   selectMode: Specific # Specific, All
   packageSelectors:
-    - name: video            # Package name
-      packagePath: video     # Path in the repo
-      packageType: Stateful  # Stateless | Stateful
+    - name: video # Package Name
+      packagePath: video # where the package is in the repo
+      packageType: Stateful # Stateless, Stateful
       liveStatePackage: true # tells the operator to use CRIU
       backupInformation:
-        - name: my-test-backup
-          backupType: Schedule # Manual | Schedule
-          schedulePeriod: "*/3 * * * *" # cron
+        - name: my-test-backup # Schedule Name
+          backupType: Schedule # Manual, Schedule
+          schedulePeriod: "*/3 * * * *" # cron format
   targetClusterPolicy:
     preferClusters:
       - name: cluster2-aws
         repoType: git
         weight: 100
+
 EOF
 
 kubectl apply -f /tmp/cluster-policy.yaml
@@ -412,7 +411,7 @@ kubectl apply -f /tmp/cluster-policy.yaml
 Clone the checkpoint agent and run it on the node that hosts the workload to be transitioned.
 
 ```bash
-git clone [https://github.com/vitu-mafeni/checkpoint-agent.git](https://github.com/vitu-mafeni/checkpoint-agent.git)
+git clone https://github.com/vitu-mafeni/checkpoint-agent.git
 cd checkpoint-agent/agent-og
 ```
 
@@ -428,7 +427,7 @@ export MINIO_BUCKET=checkpoints
 export PULL_INTERVAL=5s
 
 # Fault detection client settings
-export CONTROLLER_URL=[http://47.129.115.173:8090/heartbeat](http://47.129.115.173:8090/heartbeat)
+export CONTROLLER_URL=http://47.129.115.173:8090/heartbeat
 export FAULT_DETECTION_INTERVAL=10s
 ```
 
