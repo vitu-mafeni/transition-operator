@@ -1,5 +1,3 @@
-# USER-GUIDE
-
 # Cluster Migration Guide
 
 A step-by-step guide to migrate stateful and stateless workloads between clusters using container checkpointing, a management-plane operator, and a node-level checkpoint agent.
@@ -34,7 +32,7 @@ A step-by-step guide to migrate stateful and stateless workloads between cluster
 
 ## Package variants to keep when creating workload clusters
 
-![image.png](https://www.notion.soimages/image.png)
+![image.png](images/image.png)
 
 image.png
 
@@ -44,7 +42,7 @@ image.png
 
 - Azure clusters: Replace occurrences of the word "example" with the actual cluster name, for example, cluster1-azure.
 
-![image.png](https://www.notion.soimages/image%201.png)
+![image.png](images/image%201.png)
 
 image.png
 
@@ -454,13 +452,13 @@ kubectl port-forward svc/video-service --address 0.0.0.0 30080:8080 --kubeconfig
 
 Adding the video application to the catalog
 
-![image.png](https://www.notion.soimages/image%202.png)
+![image.png](images/image%202.png)
 
 image.png
 
 Controller annotations used to discover packages
 
-![image.png](https://www.notion.soimages/image%203.png)
+![image.png](images/image%203.png)
 
 image.png
 
