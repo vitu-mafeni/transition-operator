@@ -19,7 +19,7 @@ clusterctl init --infrastructure azure
 snap install helm --classic
 apt install buildah -y
 
-mkdir /var/lib/kubelet/checkpoints
+mkdir /var/lib/kubelet/checkpoints # created wherever the controller will be run
 ```
 
 Use Flannel CNI on the clusters [all clusters were configured with 10.244.0.0/16 pod CIDR]
@@ -28,6 +28,7 @@ Use Flannel CNI on the clusters [all clusters were configured with 10.244.0.0/16
 kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml --kubeconfig <kubeconfig-file>
 
 ```
+*** NOTE: by default, the Pod CIDR is the CAPI cluster resources is 192.168.0.0/16, make sure the CIDR matches the flannel install configs
 
 For flannel to work in azure cluster, we need to install cloud provider controller -  change pod CIDR:
 
@@ -130,15 +131,19 @@ Host azure-target-box
 
 install azure CLI
 ```bash
-az identity create \
-  --name cloud-provider-user-identity \
-  --resource-group capi-test 
+  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 ```
 
 Login to azure using the CLI
 
 ```bash
 	az login
+```
+
+Create resource group
+
+```bash
+az group create --location koreasouth --resource-group capi-test
 ```
 
 Create the identity group in the target resource group
@@ -217,6 +222,7 @@ EOF
 
 kubectl apply -f /tmp/registry-credentials.yaml
 ```
+*** NOTE: the password has to be the token created in docker.hub profile and not raw password used for login to docker hub
 
 Apply this Checkpoint service account 
 
