@@ -180,7 +180,7 @@ Host azure-target-box
 Install Azure CLI:
 
 ```bash
-curl -sL [https://aka.ms/InstallAzureCLIDeb](https://aka.ms/InstallAzureCLIDeb) | sudo bash
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 ```
 
 Login:
