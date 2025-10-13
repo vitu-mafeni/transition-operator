@@ -64,7 +64,7 @@ mkdir -p /var/lib/kubelet/checkpoints # where the controller will access checkpo
 All clusters here are configured with Pod CIDR 10.244.0.0/16.
 
 ```bash
-kubectl apply -f [https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml](https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml) --kubeconfig <kubeconfig-file>
+kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml --kubeconfig <kubeconfig-file>
 ```
 
 - Note: By default, CAPI resources often use Pod CIDR 192.168.0.0/16. Ensure this matches your Flannel config.
