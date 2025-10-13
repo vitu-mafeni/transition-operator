@@ -1,240 +1,305 @@
-# CLUSTER MIGRATION GUIDE
+# USER-GUIDE
 
-When creating workload clusters keep a minimum of the following package variants
+# Cluster Migration Guide
 
-![image.png](images/image.png)
+A step-by-step guide to migrate stateful and stateless workloads between clusters using container checkpointing, a management-plane operator, and a node-level checkpoint agent.
 
-For azure cluster, the “example” word should be replaced with the name of the cluster, in this case “cluster1-azure”
+---
 
-![image.png](images/image%201.png)
+## Overview
 
-Add in the environment variables matching the azure account you are using
+- Management plane runs controllers on the management cluster.
+- Workload plane runs the checkpoint-agent on source worker nodes.
+- Storage and network configuration must match between source and target for successful restoration.
 
-For AWS cluster, just change the AWSCluster network matching your AWS resources, 
+> Important: Source and destination clusters must run identical versions of kubelet, containerd, CRIU, and runc.
+> 
 
-On the management cluster, initialize azure cluster providers, buildah and install helm
+---
+
+## Prerequisites
+
+- Kubernetes >= 1.30 on all clusters
+- containerd >= 2.1.4 on all nodes
+- CRIU >= 4.1.1 on worker nodes
+- runc version aligned across all nodes (exact same version)
+- Go >= 1.23 on all relevant hosts
+- Helm installed on the management cluster
+- clusterctl available on the management cluster
+- Access to container registry and credentials
+- Access to a Git server for package sources (for example, Gitea)
+- Access to a MinIO or S3-compatible object store for checkpoints
+
+---
+
+## Package variants to keep when creating workload clusters
+
+![image.png](https://www.notion.soimages/image.png)
+
+image.png
+
+---
+
+## Cluster naming and environment
+
+- Azure clusters: Replace occurrences of the word "example" with the actual cluster name, for example, cluster1-azure.
+
+![image.png](https://www.notion.soimages/image%201.png)
+
+image.png
+
+- Set environment variables to match the cloud account you are using (Azure or AWS). Keep provider-specific CIDRs and network settings consistent with your cloud resources.
+
+---
+
+## Management Cluster Setup
+
+### Initialize providers and tooling
 
 ```bash
 clusterctl init --infrastructure azure
 snap install helm --classic
-apt install buildah -y
-
-mkdir /var/lib/kubelet/checkpoints # created wherever the controller will be run
+apt install -y buildah
+mkdir -p /var/lib/kubelet/checkpoints # where the controller will access checkpoints if needed
 ```
 
-Use Flannel CNI on the clusters [all clusters were configured with 10.244.0.0/16 pod CIDR]
+### Use Flannel CNI
+
+All clusters here are configured with Pod CIDR 10.244.0.0/16.
 
 ```bash
-kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml --kubeconfig <kubeconfig-file>
-
-```
-*** NOTE: by default, the Pod CIDR is the CAPI cluster resources is 192.168.0.0/16, make sure the CIDR matches the flannel install configs
-
-For flannel to work in azure cluster, we need to install cloud provider controller -  change pod CIDR:
-
-```bash
-helm install --repo https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo cloud-provider-azure --generate-name --set infra.clusterName=${CLUSTER_NAME} --set cloudControllerManager.clusterCIDR="192.168.0.0/16" --kubeconfig <kubeconfig-file> 
-
+kubectl apply -f [https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml](https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml) --kubeconfig <kubeconfig-file>
 ```
 
-ssh to all worker nodes and install CRIU and make sure runc version is IDENTICAL on both cluster’s nodes
+- Note: By default, CAPI resources often use Pod CIDR 192.168.0.0/16. Ensure this matches your Flannel config.
+
+### Azure cloud controller for Flannel
+
+For Azure, install the cloud provider controller and set a matching clusterCIDR. Adjust if your actual pod CIDR differs.
 
 ```bash
-curl -fsSL https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
-echo "deb http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/ ./" | sudo tee /etc/apt/sources.list.d/criu.list
+helm install --repo [https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo](https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo) cloud-provider-azure \
+  --generate-name \
+  --set infra.clusterName=${CLUSTER_NAME} \
+  --set cloudControllerManager.clusterCIDR="192.168.0.0/16" \
+  --kubeconfig <kubeconfig-file>
+```
+
+---
+
+## Prepare Worker Nodes (source and destination)
+
+### Install CRIU and align runc
+
+```bash
+curl -fsSL [https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key](https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key) | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
+echo "deb [http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/](http://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/) ./" | sudo tee /etc/apt/sources.list.d/criu.list
 sudo apt-get update
-sudo apt-get install criu -y
+sudo apt-get install -y criu
 
-# upgrade runc
+# Upgrade runc and ensure the same version on all nodes
 cd /tmp
-curl -L -o runc.new https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64
-sudo mv /tmp/runc.new /usr/local/sbin/runc
+curl -L -o [runc.new](http://runc.new) [https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64](https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64)
+sudo mv /tmp/[runc.new](http://runc.new) /usr/local/sbin/runc
 sudo chmod +x /usr/local/sbin/runc
 ```
 
-Create *runc.conf*  file in */etc/criu*, if the folder doesnt exist, create it and add these contents to the file
+### Create /etc/criu/runc.conf
 
 ```bash
+# /etc/criu/runc.conf
 file-locks
 tcp-close
 skip-in-flight
 tcp-established
 log-file /tmp/criu.log
-
 enable-external-masters
 external mnt[]
 skip-mnt /proc/latency_stats
-
 ```
 
-Check the version on both nodes and the output should be identical and similar to this:
+### Verify runc
+
+Output should be identical across nodes:
 
 ```bash
-# runc --version
-output:
-runc version 1.3.1
-commit: v1.3.1-0-ge6457afc
-spec: 1.2.1
-go: go1.23.12
-libseccomp: 2.5.6
-
+runc --version
+# Example output:
+# runc version 1.3.1
+# commit: v1.3.1-0-ge6457afc
+# spec: 1.2.1
+# go: go1.23.12
+# libseccomp: 2.5.6
 ```
 
-Edit this kubelet file and add the feature gate options
+### Enable kubelet feature gate (checkpointing)
 
 ```bash
 sudo nano /etc/default/kubelet
---feature-gates=ContainerCheckpoint=true
+# Append or merge the following flag (or use your distro's kubelet drop-in)
+KUBELET_EXTRA_ARGS="--feature-gates=ContainerCheckpoint=true"
 ```
 
-restart kubelet and containerd
+Restart kubelet and containerd:
 
 ```bash
-systemctl restart kubelet containerd
+sudo systemctl restart kubelet containerd
 ```
 
-**Note:** Ensure the pod's storage and network configuration match the original for successful restoration.
+---
 
-The operator is divided into 2; the controllers with run on the management cluster and checkpoint agent which runs on the workload cluster. 
+## SSH and Access (optional helpers)
 
-To ssh to the worker node using VSCode, using the following ssh_config. Before doing it, copy the while ssh from the control node to the worker node, copy the ssh files from the capi user to the root user
+To copy SSH keys from capi to root:
 
 ```bash
-cp /home/capi/.ssh . -r
+sudo cp -r /home/capi/.ssh /root/
 ```
 
-Enable root ssh login by editing the /etc/ssh/sshd_config file and changing value of PermitRootLogin to yes
-
-restart the ssh service
+Enable root SSH in /etc/ssh/sshd_config (PermitRootLogin yes), then:
 
 ```bash
-service sshd restart
+sudo systemctl restart ssh || sudo service sshd restart
 ```
 
-The config in vscode:
+VS Code SSH config example:
 
 ```
 Host azure-bastion-box
     HostName 20.214.25.226
     User capi
-    IdentityFile "C:\Users\Vt\Downloads\azure-vm-test_key.pem"
+    IdentityFile "C:\\Users\\Vt\\Downloads\\azure-vm-test_key.pem"
 
-# Target machine with private IP address
 Host azure-target-box
     HostName 10.1.0.4
     User root
-    IdentityFile "C:\Users\Vt\Downloads\azure-vm-test_key.pem"
+    IdentityFile "C:\\Users\\Vt\\Downloads\\azure-vm-test_key.pem"
     ProxyCommand ssh -q -W %h:%p azure-bastion-box
 ```
 
-### ON THE MANAGEMENT CLUSTER
+---
 
-install azure CLI
-```bash
-  curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-```
+## Cloud Setup on Management Cluster (Azure example)
 
-Login to azure using the CLI
+Install Azure CLI:
 
 ```bash
-	az login
+curl -sL [https://aka.ms/InstallAzureCLIDeb](https://aka.ms/InstallAzureCLIDeb) | sudo bash
 ```
 
-Create resource group
+Login:
+
+```bash
+az login
+```
+
+Create resource group:
 
 ```bash
 az group create --location koreasouth --resource-group capi-test
 ```
 
-Create the identity group in the target resource group
+Create user-assigned identity:
 
 ```bash
 az identity create \
   --name cloud-provider-user-identity \
-  --resource-group capi-test 
-```
-create a gitea secret with your gitea credentials 
-
-```bash
-kubectl create secret generic git-user-secret   --from-literal=username=nephio   --from-literal=password=secret   -n default
+  --resource-group capi-test
 ```
 
-Install go lang following the official guide: https://go.dev/doc/install
+---
 
-Clone the operator to any directory, i am using /home/ubuntu/projects folder
+## Secrets and Credentials
+
+### Gitea credentials secret
 
 ```bash
-mkdir projects; cd projects;git clone https://github.com/vitu-mafeni/transition-operator.git
+kubectl create secret generic git-user-secret \
+  --from-literal=username=nephio \
+  --from-literal=password=secret \
+  -n default
 ```
 
-Create environment variables matching gitea server, container registry, node heartbeat fault delay and minio server
+### Go installation
 
-Minio port can be found by the following command; get the port on minio service. minio-console is the web-ui for minio. 
+Follow the official guide: [https://go.dev/doc/install](https://go.dev/doc/install)
+
+### Clone the operator
 
 ```bash
+mkdir -p ~/projects && cd ~/projects
+git clone [https://github.com/vitu-mafeni/transition-operator.git](https://github.com/vitu-mafeni/transition-operator.git)
+```
+
+### Environment variables
+
+MinIO console defaults: username "nephio1234" and password "secret1234".
+
+```bash
+# Discover MinIO ports
 kubectl get svc -n minio-system
-```
 
-and the default username and password for minio web console is “nephio1234” and password is “secret1234”
+# Example environment variables
+export MINIO_ENDPOINT="47.129.115.173:31092"
+export MINIO_ACCESS_KEY="nephio1234"
+export MINIO_SECRET_KEY="secret1234"
+export MINIO_BUCKET="checkpoints"
 
-```bash
-export  MINIO_ENDPOINT="47.129.115.173:31092"
-export  MINIO_ACCESS_KEY="nephio1234"
-export  MINIO_SECRET_KEY="secret1234"
-export  MINIO_BUCKET="checkpoints"
-
-export REPOSITORY=vitu1
-export SECRET_NAME_REF=reg-credentials
-export SECRET_NAMESPACE_REF=default
-export REGISTRY_URL="docker.io"
-
+export REPOSITORY="vitu1"
+export SECRET_NAME_REF="reg-credentials"
+export SECRET_NAMESPACE_REF="default"
+export REGISTRY_URL="[docker.io](http://docker.io)"
 export HEARTBEAT_FAULT_DELAY=20
 
-export GIT_SERVER_URL="http://47.129.115.173:31413"
+export GIT_SERVER_URL="[http://47.129.115.173:31413](http://47.129.115.173:31413)"
 export GIT_SECRET_NAME="git-user-secret"
 export GIT_SECRET_NAMESPACE="default"
 export POD_NAMESPACE="default"
-export REGISTRY_PASSWORD="PUT_PASSWORD_HERE"
-
+export REGISTRY_PASSWORD="PUT_PASSWORD_HERE" # Use a Docker Hub access token
 ```
 
-Create registry credentials
+### Create registry credentials secret
 
 ```bash
- # Base64 ecredentials
- username_b64=$(echo -n "$REPOSITORY" | base64 -w 0) 
- password_b64=$(echo -n "$REGISTRY_PASSWORD" | base64 -w 0)
- registry_b64=$(echo -n "$REGISTRY_URL" | base64 -w 0) # docker.io
-    
-# Create secret manifest
-  
-cat > /tmp/registry-credentials.yaml <<EOF
+username_b64=$(echo -n "$REPOSITORY" | base64 -w 0)
+password_b64=$(echo -n "$REGISTRY_PASSWORD" | base64 -w 0)
+registry_b64=$(echo -n "$REGISTRY_URL" | base64 -w 0)
+
+cat > /tmp/registry-credentials.yaml <<'EOF'
 apiVersion: v1
 kind: Secret
 metadata:
   name: reg-credentials
+  namespace: default
 type: Opaque
 data:
-  username: $username_b64
-  password: $password_b64
-  registry: $registry_b64
+  username: REPLACE_USERNAME_B64
+  password: REPLACE_PASSWORD_B64
+  registry: REPLACE_REGISTRY_B64
 EOF
+
+sed -i "s/REPLACE_USERNAME_B64/$username_b64/" /tmp/registry-credentials.yaml
+sed -i "s/REPLACE_PASSWORD_B64/$password_b64/" /tmp/registry-credentials.yaml
+sed -i "s/REPLACE_REGISTRY_B64/$registry_b64/" /tmp/registry-credentials.yaml
 
 kubectl apply -f /tmp/registry-credentials.yaml
 ```
-*** NOTE: the password has to be the token created in docker.hub profile and not raw password used for login to docker hub
 
-Apply this Checkpoint service account 
+- Note: Use a Docker Hub access token rather than your account password.
+
+### Service account for checkpoint operations (source cluster)
+
+- source-cluster is the cluster where we will transition from
 
 ```bash
-cat > /tmp/checkpoint-sa.yaml <<EOF
+cat > /tmp/checkpoint-sa.yaml <<'EOF'
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: checkpoint-sa
   namespace: default
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
 kind: Role
 metadata:
   name: checkpoint-role
@@ -250,7 +315,7 @@ rules:
     resources: ["nodes/proxy"]
     verbs: ["create", "get"]
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
 kind: RoleBinding
 metadata:
   name: checkpoint-rolebinding
@@ -262,9 +327,9 @@ subjects:
 roleRef:
   kind: Role
   name: checkpoint-role
-  apiGroup: rbac.authorization.k8s.io
+  apiGroup: [rbac.authorization.k8s.io](http://rbac.authorization.k8s.io)
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
 kind: ClusterRole
 metadata:
   name: checkpoint-sa-nodes-checkpoint
@@ -278,9 +343,8 @@ rules:
   - apiGroups: [""]
     resources: ["nodes/proxy"]
     verbs: ["create", "get"]
-
 ---
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: [rbac.authorization.k8s.io/v1](http://rbac.authorization.k8s.io/v1)
 kind: ClusterRoleBinding
 metadata:
   name: checkpoint-sa-nodes-checkpoint-binding
@@ -291,44 +355,50 @@ subjects:
 roleRef:
   kind: ClusterRole
   name: checkpoint-sa-nodes-checkpoint
-  apiGroup: rbac.authorization.k8s.io
+  apiGroup: [rbac.authorization.k8s.io](http://rbac.authorization.k8s.io)
 EOF
 
+# Apply to the source cluster from which you will transition
 kubectl apply -f /tmp/checkpoint-sa.yaml --kubeconfig <source-cluster>
 ```
-*** NOTE: source-cluster is the cluster we would like to transition from.
 
-Go into the controller cloned and run the following commands
+---
+
+## Build and Run the Controller (management cluster)
 
 ```bash
+cd ~/projects/<controller-repo>
 make generate
 make manifests
 make install
 make run
 ```
 
-In the operator, there is the clusterpolicy resource which has to be applied on the management cluster. The configurations should be changed, matching your environment
+### ClusterPolicy configuration
+
+Update values to match your environment, then apply to the management cluster.
 
 ```bash
-cat > /tmp/cluster-policy.yaml <<EOF
-apiVersion: transition.dcnlab.ssu.ac.kr/v1
+cat > /tmp/cluster-policy.yaml <<'EOF'
+apiVersion: [transition.dcnlab.ssu.ac.kr/v1](http://transition.dcnlab.ssu.ac.kr/v1)
 kind: ClusterPolicy
 metadata:
   name: clusterpolicy-sample
 spec:
   clusterSelector:
     name: cluster1-azure
-    repo: http://13.212.242.157:31410/nephio/cluster1-azure.git # repo where the cluster workloads is defined
+    repo: [http://13.212.242.157:31410/nephio/cluster1-azure.git](http://13.212.242.157:31410/nephio/cluster1-azure.git) # repo where the cluster workloads are defined
     repoType: git
+  selectMode: Specific # Specific, All
   packageSelectors:
-    - name: video # Package Name
-      packagePath: video # where the package is in the repo
-      packageType: Stateful # Stateless, Stateful
+    - name: video            # Package name
+      packagePath: video     # Path in the repo
+      packageType: Stateful  # Stateless | Stateful
       liveStatePackage: true # tells the operator to use CRIU
       backupInformation:
-        - name: my-test-backup # Schedule Name
-          backupType: Schedule # Manual, Schedule
-          schedulePeriod: "*/3 * * * *" # cron format
+        - name: my-test-backup
+          backupType: Schedule # Manual | Schedule
+          schedulePeriod: "*/3 * * * *" # cron
   targetClusterPolicy:
     preferClusters:
       - name: cluster2-aws
@@ -337,21 +407,20 @@ spec:
 EOF
 
 kubectl apply -f /tmp/cluster-policy.yaml
-
 ```
 
-## Workload cluster: source worker node
+---
 
-This will run on the node where our workload will run
+## Workload Cluster: Source Worker Node
 
-clone this repository
+Clone the checkpoint agent and run it on the node that hosts the workload to be transitioned.
 
 ```bash
-git clone https://github.com/vitu-mafeni/checkpoint-agent.git
+git clone [https://github.com/vitu-mafeni/checkpoint-agent.git](https://github.com/vitu-mafeni/checkpoint-agent.git)
 cd checkpoint-agent/agent-og
 ```
 
-Make sure these environment variables are set
+Set environment variables:
 
 ```bash
 # MinIO client and checkpoint settings
@@ -362,18 +431,22 @@ export MINIO_SECRET_KEY=secret1234
 export MINIO_BUCKET=checkpoints
 export PULL_INTERVAL=5s
 
-# fault detection client settings
-export CONTROLLER_URL=http://47.129.115.173:8090/heartbeat
+# Fault detection client settings
+export CONTROLLER_URL=[http://47.129.115.173:8090/heartbeat](http://47.129.115.173:8090/heartbeat)
 export FAULT_DETECTION_INTERVAL=10s
 ```
 
-Once the transition-operator starts running in the management cluster, run the checkpoint-agent
+Run the agent after the transition-operator is running:
 
 ```bash
 go run main.go
 ```
 
-To access the video use port-forwarding for AWS and azure
+---
+
+## Accessing the Sample Video Application
+
+Port-forward for AWS or Azure clusters:
 
 ```bash
 kubectl port-forward svc/video-service --address 0.0.0.0 30080:8080 --kubeconfig aws.kubeconfig
@@ -381,13 +454,30 @@ kubectl port-forward svc/video-service --address 0.0.0.0 30080:8080 --kubeconfig
 
 Adding the video application to the catalog
 
-![image.png](images/image%202.png)
+![image.png](https://www.notion.soimages/image%202.png)
 
-The controller uses the annotations as shown below to find the packages to transition
+image.png
 
-![image.png](images/image%203.png)
+Controller annotations used to discover packages
 
-### NOTES
-- Run the Operator as root user (sudo permisions)
-- The source and destination clusters should have identical software versions i.e kubelet >=v1.30, containerd >=v2.1.4, CRIU >=v4.1.1
-- 
+![image.png](https://www.notion.soimages/image%203.png)
+
+image.png
+
+---
+
+## Notes and Best Practices
+
+- Run the operator and node agent with root privileges.
+- Keep software versions identical between source and destination nodes.
+- Validate Pod CIDR consistency between CAPI resources and your CNI.
+
+---
+
+## Troubleshooting
+
+- Flannel not routing pods across nodes: Verify Pod CIDR alignment and ensure cloud-controller integration on Azure.
+- Checkpoint restore fails: Confirm CRIU and runc compatibility. Review /tmp/criu.log on the node.
+- Agent cannot reach MinIO: Verify MINIO_ENDPOINT and network policy. Confirm bucket exists and credentials are correct.
+- Controller cannot access Git or Registry: Validate secrets, network egress, and DNS.
+- Feature gate ignored: Ensure kubelet flag is placed in the right location for your distro and that systemd drop-ins aren’t overriding it.
