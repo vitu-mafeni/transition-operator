@@ -34,7 +34,6 @@ A step-by-step guide to migrate stateful and stateless workloads between cluster
 
 ![image.png](images/image.png)
 
-image.png
 
 ---
 
@@ -44,7 +43,6 @@ image.png
 
 ![image.png](images/image%201.png)
 
-image.png
 
 - Set environment variables to match the cloud account you are using (Azure or AWS). Keep provider-specific CIDRs and network settings consistent with your cloud resources.
 
@@ -454,13 +452,11 @@ Adding the video application to the catalog
 
 ![image.png](images/image%202.png)
 
-image.png
 
 Controller annotations used to discover packages
 
 ![image.png](images/image%203.png)
 
-image.png
 
 ---
 
