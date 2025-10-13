@@ -385,3 +385,8 @@ Adding the video application to the catalog
 The controller uses the annotations as shown below to find the packages to transition
 
 ![image.png](images/image%203.png)
+
+### NOTES
+- Run the Operator as root user (sudo permisions)
+- The source and destination clusters should have identical software versions i.e kubelet >=v1.30, containerd >=v2.1.4, CRIU >=v4.1.1
+- 
