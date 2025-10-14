@@ -195,44 +195,179 @@ func UpsertNodeHealth(ctx context.Context, c ctrl.Client, namespace string, hb H
 }
 
 // MonitorNodes periodically checks heartbeat timestamps to detect faults
-func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string, clusterPolicyReconciler *controller.ClusterPolicyReconciler) {
+// func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string, clusterPolicyReconciler *controller.ClusterPolicyReconciler) {
+// 	ctx := context.Background()
+// 	log := logf.FromContext(ctx)
+
+// 	checkInterval := 300 * time.Millisecond
+
+// 	ticker := time.NewTicker(checkInterval)
+// 	defer ticker.Stop()
+
+// 	// For periodic summary logging every 10 seconds
+// 	lastSummary := time.Now()
+
+// 	for range ticker.C {
+// 		now := time.Now()
+// 		nodes := store.All()
+// 		// healthyNodes := make([]HeartbeatPayload, 0, len(nodes))
+// 		for _, hb := range nodes {
+
+// 			store.Lock()
+// 			if now.Sub(hb.ReceivedAt) > checkInterval {
+// 				hb.MissCount++
+// 			} else {
+// 				hb.MissCount = 0
+// 			}
+// 			store.data[hb.NodeName] = hb
+// 			store.Unlock()
+
+// 			//trigger recovery when MissCount exceeds threshold
+// 			if hb.MissCount == 3 {
+// 				detectedAt := time.Now()
+// 				faultDetectionTime := detectedAt.Sub(hb.ReceivedAt)
+
+// 				log.Info("Unhealthy node detected - triggering recovery",
+// 					"nodeName", hb.NodeName,
+// 					"ip", hb.IPAddress,
+// 					"lastHeartbeat", hb.ReceivedAt.Format("15:04:05.000"),
+// 					"detectedAt", detectedAt.Format("15:04:05.000"),
+// 					"faultDetectionTime", faultDetectionTime.String(),
+// 				)
+
+// 				machine := &capiv1beta1.Machine{}
+// 				err := k8sClient.Get(ctx, types.NamespacedName{
+// 					Namespace: namespace,
+// 					Name:      hb.NodeName,
+// 				}, machine)
+// 				if err != nil {
+// 					log.Error(err, "could not get capi machine with the name "+hb.NodeName)
+// 				}
+
+// 				clusterName := ""
+// 				if machine != nil {
+// 					clusterName = machine.Spec.ClusterName
+// 				}
+
+// 				// Record recovery start timestamp
+// 				recoveryStart := time.Now()
+// 				log.Info("Recovery process started",
+// 					"nodeName", hb.NodeName,
+// 					"clusterName", clusterName,
+// 					"recoveryStart", recoveryStart.Format("15:04:05.000"),
+// 				)
+
+// 				// Trigger ClusterPolicy reconciliation to handle node failure
+// 				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(
+// 					context.Background(), hb.NodeName, clusterName,
+// 				); err != nil {
+// 					log.Error(err, "ClusterPolicy reconciliation - node health",
+// 						"nodeName", hb.NodeName,
+// 						"clusterName", clusterName,
+// 					)
+// 				}
+
+// 				if err := UpsertNodeHealth(
+// 					context.Background(), k8sClient, namespace, hb, "Unhealthy",
+// 				); err != nil {
+// 					log.Error(err, "failed to update NodeHealth",
+// 						"nodeName", hb.NodeName,
+// 						"clusterName", hb.ClusterName,
+// 					)
+// 				}
+// 			}
+// 		}
+
+// 		// Periodic summary logging
+// 		// Log every 10 seconds for healthy nodes
+// 		if now.Sub(lastSummary) >= 10*time.Second {
+// 			nodes := store.All()
+// 			for _, hb := range nodes {
+// 				if hb.MissCount == 0 { // only print for healthy nodes
+// 					log.Info("heartbeat received",
+// 						"nodeName", hb.NodeName,
+// 						"ip", hb.IPAddress,
+// 					)
+// 				}
+// 			}
+// 			lastSummary = now
+// 		}
+
+// 	}
+// }
+
+// MonitorNodes periodically checks heartbeat timestamps to detect faults
+func MonitorNodes(
+	store *HeartbeatStore,
+	k8sClient ctrl.Client,
+	namespace string,
+	clusterPolicyReconciler *controller.ClusterPolicyReconciler,
+) {
 	ctx := context.Background()
 	log := logf.FromContext(ctx)
 
-	checkInterval := 300 * time.Millisecond
+	checkInterval := 100 * time.Millisecond
+	timeoutWindow := 5 * time.Second // single 5s window for detection + trigger
+	warmupPeriod := 5 * time.Second  // skip detection for first 15s after start
+	startupTime := time.Now()
 
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
-	// For periodic summary logging every 10 seconds
-	lastSummary := time.Now()
+	type NodeState struct {
+		TLastHeartbeat time.Time
+		TDetected      time.Time
+		IsTriggered    bool
+	}
+
+	state := make(map[string]*NodeState)
 
 	for range ticker.C {
 		now := time.Now()
+
+		// Skip detection during warm-up period
+		if now.Sub(startupTime) < warmupPeriod {
+			continue
+		}
+
 		nodes := store.All()
-		// healthyNodes := make([]HeartbeatPayload, 0, len(nodes))
 		for _, hb := range nodes {
-
-			store.Lock()
-			if now.Sub(hb.ReceivedAt) > checkInterval {
-				hb.MissCount++
-			} else {
-				hb.MissCount = 0
+			st, exists := state[hb.NodeName]
+			if !exists {
+				st = &NodeState{TLastHeartbeat: hb.ReceivedAt}
+				state[hb.NodeName] = st
 			}
-			store.data[hb.NodeName] = hb
-			store.Unlock()
 
-			//trigger recovery when MissCount exceeds threshold
-			if hb.MissCount == 3 {
-				detectedAt := time.Now()
-				faultDetectionTime := detectedAt.Sub(hb.ReceivedAt)
-
-				log.Info("Unhealthy node detected - triggering recovery",
+			// Update last heartbeat time
+			if hb.ReceivedAt.After(st.TLastHeartbeat) {
+				log.Info("heartbeat received",
 					"nodeName", hb.NodeName,
 					"ip", hb.IPAddress,
 					"lastHeartbeat", hb.ReceivedAt.Format("15:04:05.000"),
-					"detectedAt", detectedAt.Format("15:04:05.000"),
-					"faultDetectionTime", faultDetectionTime.String(),
+				)
+				st.TLastHeartbeat = hb.ReceivedAt
+				st.IsTriggered = false
+				st.TDetected = time.Time{} // reset detection mark
+				continue
+			}
+
+			// Check silence duration
+			silence := now.Sub(st.TLastHeartbeat)
+			if st.TDetected.IsZero() {
+				st.TDetected = now
+			}
+			if !st.IsTriggered && silence > timeoutWindow {
+				// st.TDetected = now
+				st.IsTriggered = true
+				detectionTime := st.TDetected.Sub(st.TLastHeartbeat)
+
+				log.Info("Node Unhealthy - triggering recovery",
+					"nodeName", hb.NodeName,
+					"ip", hb.IPAddress,
+					"T_lastHeartbeat", st.TLastHeartbeat.Format("15:04:05.000"),
+					"T_detected", st.TDetected.Format("15:04:05.000"),
+					"DetectionTime", detectionTime.String(),
+					"T_recoveryStart", now.Format("15:04:05.000"),
 				)
 
 				machine := &capiv1beta1.Machine{}
@@ -241,7 +376,7 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 					Name:      hb.NodeName,
 				}, machine)
 				if err != nil {
-					log.Error(err, "could not get capi machine with the name "+hb.NodeName)
+					log.Error(err, "could not get CAPI machine with the name "+hb.NodeName)
 				}
 
 				clusterName := ""
@@ -249,19 +384,10 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 					clusterName = machine.Spec.ClusterName
 				}
 
-				// Record recovery start timestamp
-				recoveryStart := time.Now()
-				log.Info("Recovery process started",
-					"nodeName", hb.NodeName,
-					"clusterName", clusterName,
-					"recoveryStart", recoveryStart.Format("15:04:05.000"),
-				)
-
-				// Trigger ClusterPolicy reconciliation to handle node failure
 				if err := clusterPolicyReconciler.ReconcileClusterPoliciesForNode(
 					context.Background(), hb.NodeName, clusterName,
 				); err != nil {
-					log.Error(err, "ClusterPolicy reconciliation - node health",
+					log.Error(err, "ClusterPolicy reconciliation error",
 						"nodeName", hb.NodeName,
 						"clusterName", clusterName,
 					)
@@ -277,22 +403,6 @@ func MonitorNodes(store *HeartbeatStore, k8sClient ctrl.Client, namespace string
 				}
 			}
 		}
-
-		// Periodic summary logging
-		// Log every 10 seconds for healthy nodes
-		if now.Sub(lastSummary) >= 10*time.Second {
-			nodes := store.All()
-			for _, hb := range nodes {
-				if hb.MissCount == 0 { // only print for healthy nodes
-					log.Info("heartbeat received",
-						"nodeName", hb.NodeName,
-						"ip", hb.IPAddress,
-					)
-				}
-			}
-			lastSummary = now
-		}
-
 	}
 }
 

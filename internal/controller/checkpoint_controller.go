@@ -34,6 +34,7 @@ import (
 	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -49,6 +50,7 @@ import (
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	"github.com/vitu1234/transition-operator/reconcilers/capi"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
+	helpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
 	"github.com/vitu1234/transition-operator/reconcilers/miniohelper"
 )
 
@@ -858,6 +860,19 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 		return fmt.Errorf("target cluster client not available yet: %v", clusterResult)
 	}
 
+	prepull_namespace := helpers.GetEnv("NAMESPACE", "pod-prepull")
+
+	//  create namespace for prepulling pods if not exist
+	err = r.createPrepullPodsNamespace(targetClusterClient, prepull_namespace)
+	if err != nil {
+		log.Info(
+			"Failed to create prepull namespace; using pod-prepull namespace instead",
+			"namespace", prepull_namespace,
+			"cluster", checkpoint.Spec.TargetClusterRef.Name,
+			"error", err,
+		)
+	}
+
 	// List all nodes in target cluster
 	var nodeList corev1.NodeList
 	if err := targetClusterClient.List(ctx, &nodeList); err != nil {
@@ -884,7 +899,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 		var existingPod corev1.Pod
 		err := targetClusterClient.Get(ctx, types.NamespacedName{
 			Name:      podName,
-			Namespace: "default",
+			Namespace: prepull_namespace,
 		}, &existingPod)
 		if err == nil {
 			// Pod exists, delete it
@@ -894,7 +909,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 			}
 			// log.Info("Deleted existing pre-pull pod", "pod", podName, "node", node.Name)
 			// Wait a bit for deletion to complete
-			time.Sleep(3 * time.Second)
+			// time.Sleep(3 * time.Second)
 		} else if !errors.IsNotFound(err) {
 			//
 			log.Error(err, "Failed to check for existing pre-pull pod", "pod", podName, "node", node.Name)
@@ -904,7 +919,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      podName,
-				Namespace: "default",
+				Namespace: prepull_namespace,
 			},
 			Spec: corev1.PodSpec{
 				NodeName:      node.Name,
@@ -947,7 +962,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 					var currentPod corev1.Pod
 					err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 						Name:      podName,
-						Namespace: "default",
+						Namespace: prepull_namespace,
 					}, &currentPod)
 					if err != nil {
 						if errors.IsNotFound(err) {
@@ -970,7 +985,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 			podToDelete := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      podName,
-					Namespace: "default",
+					Namespace: prepull_namespace,
 				},
 			}
 			deleteOpts := []client.DeleteOption{
@@ -1011,7 +1026,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 			var existingPod corev1.Pod
 			err := targetClusterClient.Get(ctx, types.NamespacedName{
 				Name:      podName,
-				Namespace: "default",
+				Namespace: prepull_namespace,
 			}, &existingPod)
 			if err == nil {
 				// Pod exists, delete it
@@ -1031,7 +1046,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 			pod := &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      podName,
-					Namespace: "default",
+					Namespace: prepull_namespace,
 				},
 				Spec: corev1.PodSpec{
 					NodeName:      node.Name,
@@ -1074,7 +1089,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 						var currentPod corev1.Pod
 						err := targetClusterClient.Get(context.Background(), types.NamespacedName{
 							Name:      podName,
-							Namespace: "default",
+							Namespace: prepull_namespace,
 						}, &currentPod)
 						if err != nil {
 							if errors.IsNotFound(err) {
@@ -1097,7 +1112,7 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 				podToDelete := &corev1.Pod{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      podName,
-						Namespace: "default",
+						Namespace: prepull_namespace,
 					},
 				}
 				deleteOpts := []client.DeleteOption{
@@ -1115,6 +1130,36 @@ func (r *CheckpointReconciler) PreDownloadImageToTargetCluster(ctx context.Conte
 		}
 	}
 
+	return nil
+}
+
+func (r *CheckpointReconciler) createPrepullPodsNamespace(workloadClusterClient client.Client, namespace string) error {
+	ctx := context.TODO()
+	log := logf.FromContext(ctx)
+
+	ns := &corev1.Namespace{}
+	err := workloadClusterClient.Get(ctx, types.NamespacedName{Name: namespace}, ns)
+	if err == nil {
+		log.Info(fmt.Sprintf("Namespace %s already exists", namespace))
+		return nil
+	}
+
+	if !apierrors.IsNotFound(err) {
+		return fmt.Errorf("error checking namespace %s: %v", namespace, err)
+	}
+
+	// Namespace not found — create it
+	newNS := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+
+	if err := workloadClusterClient.Create(ctx, newNS); err != nil {
+		return fmt.Errorf("failed to create namespace %s: %v", namespace, err)
+	}
+
+	log.Info(fmt.Sprintf("Namespace %s created successfully", namespace))
 	return nil
 }
 
