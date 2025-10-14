@@ -456,6 +456,9 @@ Controller annotations used to discover packages
 
 ![image.png](images/image%203.png)
 
+---
+## Other resources
+
 
 ---
 
