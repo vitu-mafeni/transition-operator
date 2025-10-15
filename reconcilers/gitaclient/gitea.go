@@ -102,18 +102,35 @@ func CheckRepoForMatchingManifests(
 				}
 				return err
 			}
-			namespace := ""
-			if obj.Metadata.Namespace == "" {
-				namespace = "default"
+			// namespace := ""
+			// if obj.Metadata.Namespace == "" {
+			// 	namespace = "default"
+			// }
+
+			// if obj.Kind == resourceRef.Kind &&
+			// 	obj.Metadata.Name == resourceRef.Name &&
+			// 	namespace == resourceRef.Namespace {
+
+			// 	matches = append(matches, path)
+			// 	// don't break; a file may have multiple matching docs
+			// }
+
+			objNs := obj.Metadata.Namespace
+			if objNs == "" {
+				objNs = "default"
+			}
+			refNs := resourceRef.Namespace
+			if refNs == "" {
+				refNs = "default"
 			}
 
 			if obj.Kind == resourceRef.Kind &&
 				obj.Metadata.Name == resourceRef.Name &&
-				namespace == resourceRef.Namespace {
-
+				objNs == refNs {
 				matches = append(matches, path)
 				// don't break; a file may have multiple matching docs
 			}
+
 		}
 		return nil
 	}
