@@ -206,7 +206,7 @@ func MonitorNodes(
 
 	checkInterval := 100 * time.Millisecond
 	timeoutWindow := 5 * time.Second // single 5s window for detection + trigger
-	warmupPeriod := 5 * time.Second  // skip detection for first 15s after start
+	warmupPeriod := 5 * time.Second  // skip detection for first 5s after start
 	startupTime := time.Now()
 
 	ticker := time.NewTicker(checkInterval)

@@ -102,10 +102,14 @@ func CheckRepoForMatchingManifests(
 				}
 				return err
 			}
+			namespace := ""
+			if obj.Metadata.Namespace == "" {
+				namespace = "default"
+			}
 
 			if obj.Kind == resourceRef.Kind &&
 				obj.Metadata.Name == resourceRef.Name &&
-				obj.Metadata.Namespace == resourceRef.Namespace {
+				namespace == resourceRef.Namespace {
 
 				matches = append(matches, path)
 				// don't break; a file may have multiple matching docs
