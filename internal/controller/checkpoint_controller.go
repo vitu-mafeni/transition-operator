@@ -553,7 +553,7 @@ func (r *CheckpointReconciler) checkpointContainer(ctx context.Context, backup *
 	//check if file exists in minio bucket
 	// fileExists, err := miniohelper.FileExistsInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath)
 	// Wait until file is in MinIO before proceeding
-	if err := miniohelper.WaitForFileInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath, 30*time.Second, 500*time.Millisecond); err != nil {
+	if err := miniohelper.WaitForFileInMinio(ctx, r.MinioClient.minioClient, r.MinioClient.bucketName, checkpointPath, 300*time.Second, 500*time.Millisecond); err != nil {
 		// log.Info(fmt.Sprintf("File did not appear in MinIO in time: %v", err))
 		backup.Status.OriginalImage = container.Image
 		backup.Status.LastCheckpointTime = &metav1.Time{Time: time.Now().UTC()}
