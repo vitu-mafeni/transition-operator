@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrl "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -267,14 +269,54 @@ func MonitorNodes(
 					"DetectionTime", detectionTime.String(),
 					"T_recoveryStart", now.Format("15:04:05.000"),
 				)
-
 				machine := &capiv1beta1.Machine{}
-				err := k8sClient.Get(ctx, types.NamespacedName{
-					Namespace: namespace,
-					Name:      hb.NodeName,
-				}, machine)
-				if err != nil {
-					log.Error(err, "could not get CAPI machine with the name "+hb.NodeName)
+				//  AWS machine and node naming is different so we have to check if the node belongs to AWS first
+				if strings.Contains(hb.NodeName, ".compute.internal") {
+					nodeName := hb.NodeName
+					// get all machines and find the one with matching node name
+					var machineList capiv1beta1.MachineList
+					err := k8sClient.List(ctx, &machineList, client.InNamespace(namespace))
+					if err != nil {
+						log.Error(err, "failed to list CAPI machines")
+						return
+					}
+
+					var machineName string
+
+					for _, m := range machineList.Items {
+						// log.Info("Found machine",
+						// 	"name", m.Name,
+						// 	"namespace", m.Namespace,
+						// 	"providerID", m.Spec.ProviderID,
+						// 	"phase", m.Status.Phase)
+
+						if m.Status.NodeRef != nil && m.Status.NodeRef.Name != "" {
+							log.Info("AWS Machine has associated Node",
+								"nodeName", m.Status.NodeRef.Name)
+
+							if nodeName == m.Status.NodeRef.Name {
+								machineName = m.Name
+							}
+						} else {
+							log.Info("could not find associated aws machine for capi node: " + nodeName)
+						}
+					}
+
+					err = k8sClient.Get(ctx, types.NamespacedName{
+						Namespace: namespace,
+						Name:      machineName,
+					}, machine)
+					if err != nil {
+						log.Error(err, "could not get CAPI machine with the name "+hb.NodeName)
+					}
+				} else {
+					err := k8sClient.Get(ctx, types.NamespacedName{
+						Namespace: namespace,
+						Name:      hb.NodeName,
+					}, machine)
+					if err != nil {
+						log.Error(err, "could not get CAPI machine with the name "+hb.NodeName)
+					}
 				}
 
 				clusterName := ""
