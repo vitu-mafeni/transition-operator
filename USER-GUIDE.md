@@ -426,6 +426,8 @@ export MINIO_SECRET_KEY=secret1234
 export MINIO_BUCKET=checkpoints
 export PULL_INTERVAL=5s
 
+export AWS_REGION="ap-southeast-1" #only for AWS
+
 # Fault detection client settings
 export CONTROLLER_URL=http://47.129.115.173:8090/heartbeat
 export FAULT_DETECTION_INTERVAL=10s
