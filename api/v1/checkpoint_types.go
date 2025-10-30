@@ -37,7 +37,8 @@ type ResourceRef struct {
 
 	// Name of the referenced resource
 	// +required
-	Name string `json:"name"`
+	Name        string            `json:"name"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // PodRef defines a reference to a Pod

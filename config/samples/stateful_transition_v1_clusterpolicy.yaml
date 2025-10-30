@@ -6,9 +6,9 @@ metadata:
 spec:
   clusterSelector:
     name: cluster1-azure
-    repo: http://52.221.201.236:31701/nephio/cluster1-azure.git # repo where the cluster workloads is defined
+    repo: http://3.0.52.147:30782/nephio/cluster1-azure.git # repo where the cluster workloads is defined
     repoType: git
-  selectMode: Specific # Specific, All ---> REMOVE
+  # selectMode: Specific # Specific, All ---> REMOVE
   packageSelectors:
     - name: video # Package Name
       packagePath: video # where the package is in the repo

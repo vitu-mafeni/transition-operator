@@ -20,13 +20,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const (
-	// specific mode means user has to specify which packages to transition.
-	SelectSpecific SelectMode = "Specific"
-	// All means all packages will be transitioned.
-	// This is the default mode.
-	SelectAll SelectMode = "All"
-)
+// const (
+// 	// specific mode means user has to specify which packages to transition.
+// 	SelectSpecific SelectMode = "Specific"
+// 	// All means all packages will be transitioned.
+// 	// This is the default mode.
+// 	SelectAll SelectMode = "All"
+// )
 
 // PackageType defines the type of package (stateless or stateful)
 type PackageType string
@@ -55,7 +55,7 @@ const (
 )
 
 // +enum
-type SelectMode string
+// type SelectMode string
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -63,7 +63,7 @@ type SelectMode string
 // ClusterPolicySpec defines the desired state of ClusterPolicy.
 type ClusterPolicySpec struct {
 	ClusterSelector ClusterSelector `json:"clusterSelector"`
-	SelectMode      SelectMode      `json:"selectMode"` // specific, all, or none
+	// SelectMode      SelectMode      `json:"selectMode"` // specific, all, or none
 	// TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
 	PackageSelectors []PackageSelector `json:"packageSelectors,omitempty"`
 	// PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`

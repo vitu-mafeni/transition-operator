@@ -56,8 +56,9 @@ spec:
                 - repoType
                 type: object
               packageSelectors:
-                description: TransitionMode         string                 `json:"transitionMode"`
-                  // manual, automatic, or none
+                description: |-
+                  SelectMode      SelectMode      `json:"selectMode"` // specific, all, or none
+                  TransitionMode         string                 `json:"transitionMode"` // manual, automatic, or none
                 items:
                   description: PackageSelector defines individual package selection
                     criteria
@@ -96,8 +97,6 @@ spec:
                   - packageType
                   type: object
                 type: array
-              selectMode:
-                type: string
               targetClusterPolicy:
                 description: PackageRetentionPolicy PackageRetentionPolicy `json:"packageRetentionPolicy,omitempty"`
                 properties:
@@ -142,7 +141,6 @@ spec:
                 type: object
             required:
             - clusterSelector
-            - selectMode
             type: object
           status:
             properties:

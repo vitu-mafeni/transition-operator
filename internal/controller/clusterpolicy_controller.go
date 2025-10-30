@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"code.gitea.io/sdk/gitea"
@@ -39,6 +40,9 @@ import (
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	checkpointtransition "github.com/vitu1234/transition-operator/reconcilers/checkpoint_transition"
+	"github.com/vitu1234/transition-operator/reconcilers/controlplane"
+
+	// "github.com/vitu1234/transition-operator/reconcilers/controlplane"
 	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
 	helpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
 
@@ -54,6 +58,11 @@ type ClusterPolicyReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
+
+var (
+	monitorRegistry   = make(map[string]context.CancelFunc)
+	monitorRegistryMu sync.Mutex
+)
 
 // +kubebuilder:rbac:groups=transition.dcnlab.ssu.ac.kr,resources=clusterpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=transition.dcnlab.ssu.ac.kr,resources=clusterpolicies/status,verbs=get;update;patch
@@ -128,6 +137,8 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	go r.StartWorkloadClusterControlPlaneHealthMonitor(ctx, *clusterList, *clusterPolicy)
+
 	// You can log or use numClusters as needed
 	// Example: log the number of clusters
 	// logf.FromContext(ctx).Info("Number of clusters", "count", numClusters)
@@ -183,29 +194,32 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 
 	}
 
-	r.handleNodesInWorkloadCluster(ctx, clusterPolicy, capiCluster, cluster, req)
+	err = r.handleNodesInWorkloadCluster(ctx, clusterPolicy, capiCluster, cluster, req)
+	if err != nil {
+		log.Error(err, "Failed to access node(s) in workload cluster, will run fallback logic", "cluster", cluster.Name)
+	}
 
 	// r.handlePodsInWorkloadCluster(ctx, capiCluster, cluster)
 }
 
 // Node failure
-func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster, req ctrl.Request) {
+func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster, req ctrl.Request) error {
 	log := logf.FromContext(ctx)
 	// get all pods in the cluster
 	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
-		return
+		return err
 	}
 	if !ready {
 		log.Info("Cluster is not ready", "cluster", capiCluster.GetClusterName())
-		return
+		return nil
 	}
 
 	nodeList := &corev1.NodeList{}
 	if err := clusterClient.List(ctx, nodeList); err != nil {
 		log.Error(err, "Failed to list pods for cluster", "cluster", cluster.Name)
-		return
+		return err
 	}
 	// log.Info("Found nodes in cluster", "count", len(nodeList.Items))
 	//list all pods in the cluster
@@ -221,7 +235,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 			podList := &corev1.PodList{}
 			if err := clusterClient.List(ctx, podList, client.MatchingFields{"spec.nodeName": node.Name}); err != nil {
 				log.Error(err, "Failed to list pods for machine", "machine", capiCluster.GetClusterName())
-				return
+				return err
 			}
 			// log.Info("Found pods on machine", "machine", machine.Name, "count", len(podList.Items))
 
@@ -232,6 +246,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 		}
 
 	}
+	return nil
 }
 
 // this metthod is called when a machine is not running
@@ -604,80 +619,80 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 	req ctrl.Request,
 	log logr.Logger,
 ) {
-	if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
-		log.Info("Applying transition policy to specific pods on node", "node", node.Name)
+	// if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
+	// 	log.Info("Applying transition policy to specific pods on node", "node", node.Name)
 
-		processed := make(map[string]struct{}) // To avoid duplicate transitions
+	processed := make(map[string]struct{}) // To avoid duplicate transitions
 
-		for _, pod := range podList.Items {
-			namespace := pod.Namespace
-			workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
-			workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
+	for _, pod := range podList.Items {
+		namespace := pod.Namespace
+		workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
+		workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
 
-			var annotations map[string]string
+		var annotations map[string]string
 
-			// --- Step 1: Pod-level annotations ---
-			if !hasOwner {
-				// If no owner, skip to avoid pod-level checkpoint creation
-				log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
-				continue
-				// If you want to enable pod-level checkpoint creation, uncomment the following line
-				// annotations = pod.Annotations
+		// --- Step 1: Pod-level annotations ---
+		if !hasOwner {
+			// If no owner, skip to avoid pod-level checkpoint creation
+			log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
+			continue
+			// If you want to enable pod-level checkpoint creation, uncomment the following line
+			// annotations = pod.Annotations
 
+		}
+
+		// --- Step 2: Parent workload annotations ---
+		parentObject := &metav1.PartialObjectMetadata{}
+		if hasOwner {
+			parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+			if err != nil {
+				log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
 			}
-
-			// --- Step 2: Parent workload annotations ---
-			parentObject := &metav1.PartialObjectMetadata{}
-			if hasOwner {
-				parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
-				if err != nil {
-					log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
-				}
-				if parentAnnotations != nil {
-					annotations = parentAnnotations.Annotations
-					parentObject.Kind = parentKind
-					parentObject.Name = parentAnnotations.Name
-					parentObject.Namespace = parentAnnotations.Namespace
-				}
-			}
-
-			if annotations == nil {
-				continue
-			}
-
-			for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
-				if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-					annotations["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
-
-					if helpers.IsPackageTransitioned(clusterPolicy, transitionPackage) {
-						log.Info("Package already transitioned; skipping", "package", transitionPackage.Name, "pod", pod.Name)
-						continue
-					}
-
-					// Deduplicate by workload and package
-					key := fmt.Sprintf("%s/%s", workloadID, transitionPackage.Name)
-					if _, seen := processed[key]; seen {
-						continue
-					}
-					processed[key] = struct{}{}
-
-					// log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
-					if transitionPackage.LiveStatePackage {
-						log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
-						r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-					} else {
-						r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-					}
-
-				}
+			if parentAnnotations != nil {
+				annotations = parentAnnotations.Annotations
+				parentObject.Kind = parentKind
+				parentObject.Name = parentAnnotations.Name
+				parentObject.Namespace = parentAnnotations.Namespace
 			}
 		}
 
-	} else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
-		r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
-	} else {
-		log.Info("Invalid or unspecified select mode; skipping policy application")
+		if annotations == nil {
+			continue
+		}
+
+		for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
+			if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+				annotations["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
+
+				if helpers.IsPackageTransitioned(clusterPolicy, transitionPackage) {
+					log.Info("Package already transitioned; skipping", "package", transitionPackage.Name, "pod", pod.Name)
+					continue
+				}
+
+				// Deduplicate by workload and package
+				key := fmt.Sprintf("%s/%s", workloadID, transitionPackage.Name)
+				if _, seen := processed[key]; seen {
+					continue
+				}
+				processed[key] = struct{}{}
+
+				// log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
+				if transitionPackage.LiveStatePackage {
+					log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
+					r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+				} else {
+					r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+				}
+
+			}
+		}
 	}
+
+	// } else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
+	// 	r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
+	// } else {
+	// 	log.Info("Invalid or unspecified select mode; skipping policy application")
+	// }
 }
 
 func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
@@ -919,7 +934,7 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 	// log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
 
 	// trigger migration
-	if err := r.triggerMigrationFromHeartBeat(ctx, nodeName, clusterName); err != nil {
+	if err := r.triggerMigrationNodeCP(ctx, clusterName, "heartbeat node unhealthy"); err != nil {
 		log.Error(err, "Failed to trigger migration")
 		return err
 	}
@@ -927,18 +942,18 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 	return nil
 }
 
-func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Context, nodeName string, clusterName string) error {
+func (r *ClusterPolicyReconciler) triggerMigrationNodeCP(ctx context.Context, clusterName, migrationType string) error {
 	log := logf.FromContext(ctx)
-	// log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
+	log.Info("Triggering migration from "+migrationType, "cluster", clusterName)
 
 	req := r.Client
 
-	workloadCluster := &capiv1beta1.Cluster{}
-	err := req.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, workloadCluster)
-	if err != nil {
-		log.Error(err, "Failed to get workload cluster", "cluster", clusterName)
-		return err
-	}
+	// workloadCluster := &capiv1beta1.Cluster{}
+	// err := req.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, workloadCluster)
+	// if err != nil {
+	// 	log.Error(err, "Failed to get workload cluster", "cluster", clusterName)
+	// 	return err
+	// }
 
 	// // List all Cluster resources
 	// clusterList := &capiv1beta1.ClusterList{}
@@ -955,6 +970,7 @@ func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Cont
 	clusterPolicy := &transitionv1.ClusterPolicy{}
 	clusterPolicyList := &transitionv1.ClusterPolicyList{}
 	if err := req.List(ctx, clusterPolicyList); err != nil {
+		// log.Error(err, "Failed to list ClusterPolicies")
 		return err
 	}
 
@@ -967,25 +983,27 @@ func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Cont
 	}
 
 	if clusterPolicy.Name == "" {
-		log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
+		// log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
 		return fmt.Errorf("no ClusterPolicy found for cluster %s", clusterName)
 	}
-	// log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
+	// log.Info("Found ClusterPolicy for cluster true true", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
+
 		if pkg.LiveStatePackage {
 			// log.Info("Found live state package from heartbeat", "package", pkg.Name)
 
 			//we have to create transition on missed node health for this package
-			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, workloadCluster)
+			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, clusterName)
 
 			if err != nil {
 				log.Error(err, "Failed to get cluster resources info for package", "package", pkg.Name)
 			}
 		}
-	}
 
+	}
+	// log.Info("error Completed triggering migration from "+migrationType+" for cluster", "cluster", clusterName)
 	return nil
 }
 
@@ -1028,8 +1046,182 @@ func (r *ClusterPolicyReconciler) GetWorkloadClusterClientByName(ctx context.Con
 
 }
 
+// code for control-plane node failure handling
+
+// StartWorkloadClusterControlPlaneHealthMonitor runs a lightweight control-plane checker
+// StartWorkloadClusterControlPlaneHealthMonitor runs a lightweight control-plane checker
+// that periodically verifies if a cluster's API server and control-plane nodes are healthy.
+func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
+	ctx context.Context,
+	clusters capiv1beta1.ClusterList,
+	clusterPolicy transitionv1.ClusterPolicy,
+) {
+
+	log := logf.FromContext(ctx)
+	clusterName := clusterPolicy.Spec.ClusterSelector.Name
+
+	// --- Ensure only one monitor per cluster ---
+	monitorRegistryMu.Lock()
+	if _, exists := monitorRegistry[clusterName]; exists {
+		log.Info("Control plane monitor already running", "cluster", clusterName)
+		monitorRegistryMu.Unlock()
+		return
+	}
+	monitorCtx, cancel := context.WithCancel(ctx)
+	monitorRegistry[clusterName] = cancel
+	monitorRegistryMu.Unlock()
+
+	log.Info("Starting control plane health monitor", "cluster", clusterName)
+
+	go func() {
+		defer func() {
+			monitorRegistryMu.Lock()
+			delete(monitorRegistry, clusterName)
+			monitorRegistryMu.Unlock()
+			log.Info("Stopped control plane health monitor", "cluster", clusterName)
+		}()
+
+		const checkInterval = 1 * time.Second
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				capiCluster, err := capictrl.GetCapiClusterFromName(monitorCtx, clusterName, "default", r.Client)
+				if err != nil {
+					log.Error(err, "Failed to get CAPI cluster", "cluster", clusterName)
+					continue
+				}
+
+				clusterClient, _, ready, err := capiCluster.GetClusterClient(monitorCtx)
+				if err != nil || !ready {
+					log.Info("Cluster not ready yet; retrying", "cluster", clusterName)
+					continue
+				}
+
+				checkCtx, cancelCheck := context.WithTimeout(monitorCtx, 2*time.Second)
+				status, err := controlplane.CheckControlPlaneStatus(checkCtx, clusterClient)
+				cancelCheck()
+
+				if err != nil {
+					status = controlplane.ControlPlaneUnreachable
+				}
+
+				log.Info("Control plane status: "+string(status), "cluster", clusterName)
+
+				if status != controlplane.ControlPlaneReady {
+
+					var refreshedPolicy transitionv1.ClusterPolicy
+					if err := r.Client.Get(ctx, types.NamespacedName{
+						Name:      clusterPolicy.Name,
+						Namespace: clusterPolicy.Namespace,
+					}, &refreshedPolicy); err != nil {
+						log.Error(err, "Failed to fetch latest ClusterPolicy", "cluster", clusterName)
+						continue
+					}
+
+					if isClusterPolicyStatusEmpty(refreshedPolicy.Status) {
+
+						log.Info("Triggering migration reconciliation due to control plane issue", "cluster", clusterName)
+						if err := r.triggerMigrationNodeCP(ctx, clusterName, "control-plane unhealthy or fault"); err != nil {
+							log.Error(err, "Failed to trigger migration")
+						}
+					}
+				}
+
+			case <-monitorCtx.Done():
+				return
+			}
+		}
+	}()
+
+}
+func isClusterPolicyStatusEmpty(status transitionv1.ClusterPolicyStatus) bool {
+
+	return len(status.TransitionedPackages) == 0
+}
+
+/*
+func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
+	ctx context.Context,
+	clusters capiv1beta1.ClusterList,
+	clusterPolicy transitionv1.ClusterPolicy,
+) {
+	log := logf.FromContext(ctx)
+
+	capiCluster, err := capictrl.GetCapiClusterFromName(ctx, clusterPolicy.Spec.ClusterSelector.Name, "default", r.Client)
+	if err != nil {
+		log.Error(err, "Failed to get CAPI cluster for control plane health monitor",
+			"cluster", clusterPolicy.Spec.ClusterSelector.Name)
+		return
+	}
+
+	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil {
+		log.Error(err, "Failed to get workload cluster client for control plane health monitor",
+			"cluster", capiCluster.GetClusterName())
+		return
+	}
+	if !ready {
+		log.Info("Cluster not ready for control plane health monitor",
+			"cluster", capiCluster.GetClusterName())
+		return
+	}
+
+	workloadClusterClient := clusterClient
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	var lastStatus controlplane.ControlPlaneStatus = "Unknown"
+
+	log.Info("control plane health monitor",
+		"cluster", capiCluster.GetClusterName())
+
+	for {
+		select {
+		case <-ticker.C:
+			status, err := controlplane.CheckControlPlaneStatus(ctx, workloadClusterClient)
+			if err != nil {
+				status = controlplane.ControlPlaneUnreachable
+			}
+
+			// --- Only log on state change ---
+			if status != lastStatus {
+				switch status {
+				case controlplane.ControlPlaneReady:
+					log.Info("Control plane is healthy",
+						"cluster", capiCluster.GetClusterName())
+				case controlplane.ControlPlaneUnreachable:
+					log.Error(err, "Control plane is unreachable",
+						"cluster", capiCluster.GetClusterName())
+				default:
+					log.Info("Control plane is unhealthy",
+						"cluster", capiCluster.GetClusterName(),
+						"status", status)
+				}
+
+				lastStatus = status
+
+				if status != controlplane.ControlPlaneReady {
+					log.Info("Triggering reconciliation due to control plane issue",
+						"cluster", capiCluster.GetClusterName())
+					// You can trigger reconcile here if needed
+				}
+			}
+
+		case <-ctx.Done():
+			log.Info("Stopping control plane health monitor",
+				"cluster", capiCluster.GetClusterName())
+			return
+		}
+	}
+}
+*/
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+
 	return builder.ControllerManagedBy(mgr).
 		For(&transitionv1.ClusterPolicy{}).
 		Watches(
