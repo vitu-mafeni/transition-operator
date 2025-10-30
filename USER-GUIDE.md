@@ -74,7 +74,7 @@ kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/
 For Azure, install the cloud provider controller and set a matching clusterCIDR. Adjust if your actual pod CIDR differs.
 
 ```bash
-helm install --repo https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo cloud-provider-azure --generate-name --set infra.clusterName=${CLUSTER_NAME} --set cloudControllerManager.clusterCIDR="192.168.0.0/16" --kubeconfig <kubeconfig-file> 
+helm install --repo https://raw.githubusercontent.com/kubernetes-sigs/cloud-provider-azure/master/helm/repo cloud-provider-azure --generate-name --set infra.clusterName=${CLUSTER_NAME} --set cloudControllerManager.clusterCIDR="10.244.0.0/16" --kubeconfig <kubeconfig-file> 
 
 ```
 
@@ -381,24 +381,34 @@ metadata:
 spec:
   clusterSelector:
     name: cluster1-azure
-    repo: http://13.212.242.157:31410/nephio/cluster1-azure.git # repo where the cluster workloads is defined
+    repo: http://3.0.52.147:30782/nephio/cluster1-azure.git # repo where the cluster workloads is defined
     repoType: git
-  selectMode: Specific # Specific, All
   packageSelectors:
     - name: video # Package Name
       packagePath: video # where the package is in the repo
       packageType: Stateful # Stateless, Stateful
-      liveStatePackage: true # tells the operator to use CRIU
+      liveStatePackage: true
       backupInformation:
+        # - name: my-test-backup # Backup Name
+        #   backupType: Manual # Manual, Schedule
         - name: my-test-backup # Schedule Name
           backupType: Schedule # Manual, Schedule
-          schedulePeriod: "*/3 * * * *" # cron format
+          schedulePeriod: "*/2 * * * *" # cron format
+    - name: redis # Package Name
+      packagePath: redis # where the package is in the repo
+      packageType: Stateful # Stateless, Stateful
+      liveStatePackage: true
+      backupInformation:
+        # - name: my-test-backup # Backup Name
+        #   backupType: Manual # Manual, Schedule
+        - name: my-test-backup1 # Schedule Name
+          backupType: Schedule # Manual, Schedule
+          schedulePeriod: "*/2 * * * *" # cron format
   targetClusterPolicy:
     preferClusters:
       - name: cluster2-aws
         repoType: git
         weight: 100
-
 EOF
 
 kubectl apply -f /tmp/cluster-policy.yaml
