@@ -8,7 +8,6 @@ spec:
     name: cluster1-azure
     repo: http://3.0.52.147:30782/nephio/cluster1-azure.git # repo where the cluster workloads is defined
     repoType: git
-  # selectMode: Specific # Specific, All ---> REMOVE
   packageSelectors:
     - name: video # Package Name
       packagePath: video # where the package is in the repo
@@ -18,6 +17,16 @@ spec:
         # - name: my-test-backup # Backup Name
         #   backupType: Manual # Manual, Schedule
         - name: my-test-backup # Schedule Name
+          backupType: Schedule # Manual, Schedule
+          schedulePeriod: "*/2 * * * *" # cron format
+    - name: redis # Package Name
+      packagePath: redis # where the package is in the repo
+      packageType: Stateful # Stateless, Stateful
+      liveStatePackage: true
+      backupInformation:
+        # - name: my-test-backup # Backup Name
+        #   backupType: Manual # Manual, Schedule
+        - name: my-test-backup1 # Schedule Name
           backupType: Schedule # Manual, Schedule
           schedulePeriod: "*/2 * * * *" # cron format
   targetClusterPolicy:

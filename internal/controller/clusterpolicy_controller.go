@@ -106,6 +106,8 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 
 	}
+	// Start control plane health monitor for the workload cluster if not already running
+	go r.StartWorkloadClusterControlPlaneHealthMonitor(ctx, *clusterList, *clusterPolicy)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
@@ -136,8 +138,6 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 		}
 	}
-
-	go r.StartWorkloadClusterControlPlaneHealthMonitor(ctx, *clusterList, *clusterPolicy)
 
 	// You can log or use numClusters as needed
 	// Example: log the number of clusters

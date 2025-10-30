@@ -27,16 +27,152 @@ func PerformWorkloadClusterCheckpointAction(
 	workloadCluster *capiv1beta1.Cluster,
 ) error {
 	log := logf.FromContext(ctx)
+	/*
+		checkpoints := &transitionv1.CheckpointList{}
+		if err := mgmtClient.List(ctx, checkpoints, &client.ListOptions{}); err != nil {
+			log.Error(err, "Failed to list checkpoints")
+			return err
+		}
+		processed := make(map[string]struct{}) // Deduplication
+		for _, checkpoint := range checkpoints.Items {
+			annotations := checkpoint.Annotations
 
+			if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+				annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+
+				if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
+					log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", checkpoint.Spec.PodRef.Name)
+					continue
+				}
+
+				// Deduplicate by workload and package
+				key := fmt.Sprintf("%s/%s", checkpoint.Spec.PodRef.Name, pkg.Name)
+				if _, seen := processed[key]; seen {
+					continue
+				}
+				processed[key] = struct{}{}
+
+				// log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
+				// if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
+				// 	log.Error(err, "Failed to create Checkpoint CR for workload/pod resource",
+				// 		"workload", workloadID,
+				// 		"package", pkg.Name)
+				// 	return err
+				// }
+
+				TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, checkpoint.Spec.ClusterRef.Name)
+				continue
+
+			}
+		}
+
+		if len(checkpoints.Items) == 0 {
+			// log.Info("No checkpoints found for transition")
+			// --- Get workload cluster client ---
+			_, workloadClusterClient, _, err := capi.GetWorkloadClusterClient(ctx, mgmtClient, workloadCluster.Name)
+			if err != nil {
+				return err
+			}
+			if workloadClusterClient == nil {
+				log.Info("Cluster client not available yet in ready state", "cluster", workloadCluster.Name)
+				return fmt.Errorf("workload cluster %q client not available yet", workloadCluster.Name)
+			}
+
+			// --- List all pods ---
+			podList := &corev1.PodList{}
+			if err := workloadClusterClient.List(ctx, podList, &client.ListOptions{}); err != nil {
+				log.Error(err, "Failed to list pods in workload cluster", "cluster", workloadCluster.Name)
+				return err
+			}
+
+			processed := make(map[string]struct{}) // Deduplication
+
+			// --- Iterate over pods ---
+			for _, pod := range podList.Items {
+				namespace := pod.Namespace
+				workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
+				workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
+
+				var annotations map[string]string
+				// --- Step 1: Pod-level annotations ---
+				if !hasOwner {
+					// If no owner, skip to avoid pod-level checkpoint creation
+					log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
+					continue
+
+				}
+
+				// --- Step 2: Parent workload annotations ---
+				parentObject := &metav1.PartialObjectMetadata{}
+				parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
+				if err != nil {
+					log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
+				}
+
+				if parentAnnotations != nil {
+					annotations = parentAnnotations.Annotations
+					parentObject.Kind = parentKind
+					parentObject.Name = parentAnnotations.Name
+					parentObject.Namespace = parentAnnotations.Namespace
+					parentObject.Annotations = annotations
+				}
+
+				// if val, ok := parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/packageName"]; ok {
+				// 	log.Info("Annotation found", "value", val)
+
+				// 	log.Info("Parent Annotations", "annotations", parentAnnotations.Annotations)
+				// }
+
+				if annotations == nil {
+					continue
+				}
+
+				if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+					annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+
+					if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
+						log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", pod.Name)
+						continue
+					}
+
+					// Deduplicate by workload and package
+					key := fmt.Sprintf("%s/%s", workloadID, pkg.Name)
+					if _, seen := processed[key]; seen {
+						continue
+					}
+					processed[key] = struct{}{}
+
+					// log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
+					if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
+						log.Error(err, "Failed to create Checkpoint CR for workload/pod resource",
+							"workload", workloadID,
+							"package", pkg.Name)
+						return err
+					}
+					// continue
+
+				}
+
+			}
+
+			return nil
+		}
+
+		return nil
+	*/
+
+	// --- List existing checkpoints ---
 	checkpoints := &transitionv1.CheckpointList{}
 	if err := mgmtClient.List(ctx, checkpoints, &client.ListOptions{}); err != nil {
 		log.Error(err, "Failed to list checkpoints")
 		return err
 	}
-	processed := make(map[string]struct{}) // Deduplication
-	for _, checkpoint := range checkpoints.Items {
-		annotations := checkpoint.Annotations
 
+	processed := make(map[string]struct{}) // Deduplication
+
+	// --- Trigger transition on existing checkpoints for this package ---
+	for _, checkpoint := range checkpoints.Items {
+		annotations := checkpoint.Spec.ResourceRef.Annotations
 		if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
 			annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
 
@@ -45,117 +181,92 @@ func PerformWorkloadClusterCheckpointAction(
 				continue
 			}
 
-			// Deduplicate by workload and package
 			key := fmt.Sprintf("%s/%s", checkpoint.Spec.PodRef.Name, pkg.Name)
 			if _, seen := processed[key]; seen {
 				continue
 			}
 			processed[key] = struct{}{}
 
-			// log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
-			// if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
-			// 	log.Error(err, "Failed to create Checkpoint CR for workload/pod resource",
-			// 		"workload", workloadID,
-			// 		"package", pkg.Name)
-			// 	return err
-			// }
-
-			TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, checkpoint.Spec.ClusterRef.Name)
-			continue
-
+			// TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, checkpoint.Spec.ClusterRef.Name)
 		}
 	}
 
-	if len(checkpoints.Items) == 0 {
-		// log.Info("No checkpoints found for transition")
-		// --- Get workload cluster client ---
+	// --- If no checkpoints exist for this package, create new ones from pods ---
+	packageCheckpointsExist := false
+	for _, checkpoint := range checkpoints.Items {
+		if checkpoint.Spec.ResourceRef.Annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+			packageCheckpointsExist = true
+			break
+		}
+	}
+
+	if !packageCheckpointsExist {
+		// Get workload cluster client
 		_, workloadClusterClient, _, err := capi.GetWorkloadClusterClient(ctx, mgmtClient, workloadCluster.Name)
 		if err != nil {
 			return err
 		}
 		if workloadClusterClient == nil {
-			log.Info("Cluster client not available yet in ready state", "cluster", workloadCluster.Name)
+			log.Info("Cluster client not available yet; skipping checkpoint creation", "cluster", workloadCluster.Name)
 			return fmt.Errorf("workload cluster %q client not available yet", workloadCluster.Name)
 		}
 
-		// --- List all pods ---
+		// List all pods
 		podList := &corev1.PodList{}
 		if err := workloadClusterClient.List(ctx, podList, &client.ListOptions{}); err != nil {
 			log.Error(err, "Failed to list pods in workload cluster", "cluster", workloadCluster.Name)
 			return err
 		}
 
-		processed := make(map[string]struct{}) // Deduplication
+		processedPods := make(map[string]struct{})
 
-		// --- Iterate over pods ---
 		for _, pod := range podList.Items {
 			namespace := pod.Namespace
 			workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
-			workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
-
-			var annotations map[string]string
-			// --- Step 1: Pod-level annotations ---
 			if !hasOwner {
-				// If no owner, skip to avoid pod-level checkpoint creation
-				log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
+				log.Info("Pod has no owner; skipping", "pod", pod.Name)
 				continue
-
 			}
 
-			// --- Step 2: Parent workload annotations ---
+			workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
+
 			parentObject := &metav1.PartialObjectMetadata{}
 			parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
 			if err != nil {
-				log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
+				log.Error(fmt.Errorf("error getting parent annotations"), err.Error())
+				continue
 			}
 
 			if parentAnnotations != nil {
-				annotations = parentAnnotations.Annotations
 				parentObject.Kind = parentKind
 				parentObject.Name = parentAnnotations.Name
 				parentObject.Namespace = parentAnnotations.Namespace
-				parentObject.Annotations = annotations
-			}
-
-			// if val, ok := parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/packageName"]; ok {
-			// 	log.Info("Annotation found", "value", val)
-
-			// 	log.Info("Parent Annotations", "annotations", parentAnnotations.Annotations)
-			// }
-
-			if annotations == nil {
+				parentObject.Annotations = parentAnnotations.Annotations
+			} else {
 				continue
 			}
 
-			if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-				annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
-
-				if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
-					log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", pod.Name)
-					continue
-				}
-
-				// Deduplicate by workload and package
-				key := fmt.Sprintf("%s/%s", workloadID, pkg.Name)
-				if _, seen := processed[key]; seen {
-					continue
-				}
-				processed[key] = struct{}{}
-
-				// log.Info("Matched workload for transition", "workload", workloadID, "package", pkg.Name, "pod", pod.Name)
-				if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
-					log.Error(err, "Failed to create Checkpoint CR for workload/pod resource",
-						"workload", workloadID,
-						"package", pkg.Name)
-					return err
-				}
+			if parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] != "true" ||
+				parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/packageName"] != pkg.Name {
 				continue
-
 			}
 
+			if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
+				log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", pod.Name)
+				continue
+			}
+
+			key := fmt.Sprintf("%s/%s", workloadID, pkg.Name)
+			if _, seen := processedPods[key]; seen {
+				continue
+			}
+			processedPods[key] = struct{}{}
+
+			if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
+				log.Error(err, "Failed to create Checkpoint CR for pod", "pod", pod.Name, "package", pkg.Name)
+				return err
+			}
 		}
-
-		return nil
 	}
 
 	return nil

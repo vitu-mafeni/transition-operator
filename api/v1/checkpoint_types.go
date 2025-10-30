@@ -149,8 +149,9 @@ type CheckpointSpec struct {
 type ClusterRef struct {
 	// Name of the referenced cluster
 	// +required
-	Name       string `json:"name"`
-	Repository string `json:"repository,omitempty"`
+	Name        string `json:"name"`
+	Repository  string `json:"repository,omitempty"`
+	PackageName string `json:"packageName,omitempty"`
 }
 
 // CheckpointPhase represents the phase of the checkpoint backup operation
