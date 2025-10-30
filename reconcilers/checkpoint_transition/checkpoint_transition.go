@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
+	capi "github.com/vitu1234/transition-operator/reconcilers/capi"
 	"github.com/vitu1234/transition-operator/reconcilers/helpers"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,7 +66,8 @@ func PerformWorkloadClusterCheckpointAction(
 		}
 	}
 
-	/*
+	if len(checkpoints.Items) == 0 {
+		// log.Info("No checkpoints found for transition")
 		// --- Get workload cluster client ---
 		_, workloadClusterClient, _, err := capi.GetWorkloadClusterClient(ctx, mgmtClient, workloadCluster.Name)
 		if err != nil {
@@ -152,7 +154,10 @@ func PerformWorkloadClusterCheckpointAction(
 			}
 
 		}
-	*/
+
+		return nil
+	}
+
 	return nil
 }
 
