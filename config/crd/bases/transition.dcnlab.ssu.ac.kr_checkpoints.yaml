@@ -44,6 +44,8 @@ spec:
                   name:
                     description: Name of the referenced cluster
                     type: string
+                  packageName:
+                    type: string
                   repository:
                     type: string
                 required:
@@ -1580,6 +1582,8 @@ spec:
                 properties:
                   name:
                     description: Name of the referenced cluster
+                    type: string
+                  packageName:
                     type: string
                   repository:
                     type: string
