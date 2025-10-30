@@ -38,10 +38,11 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
-	v1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	checkpointtransition "github.com/vitu1234/transition-operator/reconcilers/checkpoint_transition"
 	"github.com/vitu1234/transition-operator/reconcilers/controlplane"
+
+	// "github.com/vitu1234/transition-operator/reconcilers/controlplane"
 	giteaclient "github.com/vitu1234/transition-operator/reconcilers/gitaclient"
 	helpers "github.com/vitu1234/transition-operator/reconcilers/helpers"
 
@@ -1041,19 +1042,21 @@ func (r *ClusterPolicyReconciler) GetWorkloadClusterClientByName(ctx context.Con
 // code for control-plane node failure handling
 
 // StartWorkloadClusterControlPlaneHealthMonitor runs a lightweight control-plane checker
+// StartWorkloadClusterControlPlaneHealthMonitor runs a lightweight control-plane checker
 // that periodically verifies if a cluster's API server and control-plane nodes are healthy.
 func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 	ctx context.Context,
 	clusters capiv1beta1.ClusterList,
-	clusterPolicy v1.ClusterPolicy,
+	clusterPolicy transitionv1.ClusterPolicy,
 ) {
+
 	log := logf.FromContext(ctx)
 	clusterName := clusterPolicy.Spec.ClusterSelector.Name
 
 	// --- Ensure only one monitor per cluster ---
 	monitorRegistryMu.Lock()
 	if _, exists := monitorRegistry[clusterName]; exists {
-		log.V(4).Info("Control plane monitor already running", "cluster", clusterName)
+		log.Info("Control plane monitor already running", "cluster", clusterName)
 		monitorRegistryMu.Unlock()
 		return
 	}
