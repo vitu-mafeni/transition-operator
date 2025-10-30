@@ -60,7 +60,7 @@ func PerformWorkloadClusterCheckpointAction(
 			// 	return err
 			// }
 
-			TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, workloadCluster)
+			TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, checkpoint.Spec.ClusterRef.Name)
 			continue
 
 		}

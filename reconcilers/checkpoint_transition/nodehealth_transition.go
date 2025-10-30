@@ -13,7 +13,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -27,7 +26,7 @@ func TriggerTransitionOnMissedNodeHealth(
 	mgmtClient client.Client,
 	pkg transitionv1.PackageSelector,
 	clusterPolicy *transitionv1.ClusterPolicy,
-	workloadCluster *capiv1beta1.Cluster,
+	workloadClusterName string,
 ) error {
 	log := logf.FromContext(ctx)
 
@@ -38,7 +37,7 @@ func TriggerTransitionOnMissedNodeHealth(
 	}
 	processed := make(map[string]struct{}) // Deduplication
 	for _, checkpoint := range checkpoints.Items {
-		annotations := checkpoint.Annotations
+		annotations := checkpoint.Spec.ResourceRef.Annotations
 
 		if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
 			annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
@@ -63,7 +62,7 @@ func TriggerTransitionOnMissedNodeHealth(
 			// 	return err
 			// }
 
-			TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, workloadCluster)
+			TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, workloadClusterName)
 			continue
 
 		}
@@ -72,19 +71,19 @@ func TriggerTransitionOnMissedNodeHealth(
 	if len(checkpoints.Items) == 0 {
 		// log.Info("No checkpoints found for transition")
 		// --- Get workload cluster client ---
-		_, workloadClusterClient, _, err := capi.GetWorkloadClusterClient(ctx, mgmtClient, workloadCluster.Name)
+		_, workloadClusterClient, _, err := capi.GetWorkloadClusterClient(ctx, mgmtClient, workloadClusterName)
 		if err != nil {
 			return err
 		}
 		if workloadClusterClient == nil {
-			log.Info("Cluster client not available yet in ready state", "cluster", workloadCluster.Name)
-			return fmt.Errorf("workload cluster %q client not available yet", workloadCluster.Name)
+			log.Info("Cluster client not available yet in ready state", "cluster", workloadClusterName)
+			return fmt.Errorf("workload cluster %q client not available yet", workloadClusterName)
 		}
 
 		// --- List all pods ---
 		podList := &corev1.PodList{}
 		if err := workloadClusterClient.List(ctx, podList, &client.ListOptions{}); err != nil {
-			log.Error(err, "Failed to list pods in workload cluster", "cluster", workloadCluster.Name)
+			log.Error(err, "Failed to list pods in workload cluster", "cluster", workloadClusterName)
 			return err
 		}
 
@@ -246,7 +245,7 @@ func TriggerTransitionOnMissedNodeHealth(
 	return nil
 }
 
-func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client, podName string, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, workloadCluster *capiv1beta1.Cluster) {
+func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client, podName string, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, workloadClusterName string) {
 	log := logf.FromContext(ctx)
 	// log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
 

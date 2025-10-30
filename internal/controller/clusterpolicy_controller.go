@@ -194,29 +194,32 @@ func (r *ClusterPolicyReconciler) performWorkloadClusterPolicyActions(ctx contex
 
 	}
 
-	r.handleNodesInWorkloadCluster(ctx, clusterPolicy, capiCluster, cluster, req)
+	err = r.handleNodesInWorkloadCluster(ctx, clusterPolicy, capiCluster, cluster, req)
+	if err != nil {
+		log.Error(err, "Failed to access node(s) in workload cluster, will run fallback logic", "cluster", cluster.Name)
+	}
 
 	// r.handlePodsInWorkloadCluster(ctx, capiCluster, cluster)
 }
 
 // Node failure
-func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster, req ctrl.Request) {
+func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Context, clusterPolicy *transitionv1.ClusterPolicy, capiCluster *capictrl.Capi, cluster *capiv1beta1.Cluster, req ctrl.Request) error {
 	log := logf.FromContext(ctx)
 	// get all pods in the cluster
 	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
 	if err != nil {
 		log.Error(err, "Failed to get workload cluster client", "cluster", capiCluster.GetClusterName())
-		return
+		return err
 	}
 	if !ready {
 		log.Info("Cluster is not ready", "cluster", capiCluster.GetClusterName())
-		return
+		return nil
 	}
 
 	nodeList := &corev1.NodeList{}
 	if err := clusterClient.List(ctx, nodeList); err != nil {
 		log.Error(err, "Failed to list pods for cluster", "cluster", cluster.Name)
-		return
+		return err
 	}
 	// log.Info("Found nodes in cluster", "count", len(nodeList.Items))
 	//list all pods in the cluster
@@ -232,7 +235,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 			podList := &corev1.PodList{}
 			if err := clusterClient.List(ctx, podList, client.MatchingFields{"spec.nodeName": node.Name}); err != nil {
 				log.Error(err, "Failed to list pods for machine", "machine", capiCluster.GetClusterName())
-				return
+				return err
 			}
 			// log.Info("Found pods on machine", "machine", machine.Name, "count", len(podList.Items))
 
@@ -243,6 +246,7 @@ func (r *ClusterPolicyReconciler) handleNodesInWorkloadCluster(ctx context.Conte
 		}
 
 	}
+	return nil
 }
 
 // this metthod is called when a machine is not running
@@ -944,12 +948,12 @@ func (r *ClusterPolicyReconciler) triggerMigrationNodeCP(ctx context.Context, cl
 
 	req := r.Client
 
-	workloadCluster := &capiv1beta1.Cluster{}
-	err := req.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, workloadCluster)
-	if err != nil {
-		log.Error(err, "Failed to get workload cluster", "cluster", clusterName)
-		return err
-	}
+	// workloadCluster := &capiv1beta1.Cluster{}
+	// err := req.Get(ctx, types.NamespacedName{Name: clusterName, Namespace: "default"}, workloadCluster)
+	// if err != nil {
+	// 	log.Error(err, "Failed to get workload cluster", "cluster", clusterName)
+	// 	return err
+	// }
 
 	// // List all Cluster resources
 	// clusterList := &capiv1beta1.ClusterList{}
@@ -966,6 +970,7 @@ func (r *ClusterPolicyReconciler) triggerMigrationNodeCP(ctx context.Context, cl
 	clusterPolicy := &transitionv1.ClusterPolicy{}
 	clusterPolicyList := &transitionv1.ClusterPolicyList{}
 	if err := req.List(ctx, clusterPolicyList); err != nil {
+		// log.Error(err, "Failed to list ClusterPolicies")
 		return err
 	}
 
@@ -978,25 +983,27 @@ func (r *ClusterPolicyReconciler) triggerMigrationNodeCP(ctx context.Context, cl
 	}
 
 	if clusterPolicy.Name == "" {
-		log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
+		// log.Info("No ClusterPolicy found for cluster", "cluster", clusterName)
 		return fmt.Errorf("no ClusterPolicy found for cluster %s", clusterName)
 	}
-	// log.Info("Found ClusterPolicy for cluster", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
+	// log.Info("Found ClusterPolicy for cluster true true", "clusterPolicy", clusterPolicy.Name, "cluster", clusterName)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
+
 		if pkg.LiveStatePackage {
 			// log.Info("Found live state package from heartbeat", "package", pkg.Name)
 
 			//we have to create transition on missed node health for this package
-			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, workloadCluster)
+			err := checkpointtransition.TriggerTransitionOnMissedNodeHealth(ctx, r.Client, pkg, clusterPolicy, clusterName)
 
 			if err != nil {
 				log.Error(err, "Failed to get cluster resources info for package", "package", pkg.Name)
 			}
 		}
-	}
 
+	}
+	// log.Info("error Completed triggering migration from "+migrationType+" for cluster", "cluster", clusterName)
 	return nil
 }
 
@@ -1097,7 +1104,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
-		var lastStatus controlplane.ControlPlaneStatus = "Unknown"
+		// var lastStatus controlplane.ControlPlaneStatus = "Unknown"
 
 		for {
 			select {
@@ -1110,25 +1117,25 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 				}
 				log.Info("Control plane status: " + string(status) + " for ClusterName: " + clusterName)
 				// Log only when status changes
-				if status != lastStatus {
-					switch status {
-					case controlplane.ControlPlaneReady:
-						log.Info("Control plane is healthy", "cluster", clusterName)
-					case controlplane.ControlPlaneUnreachable:
-						log.Error(err, "Control plane is unreachable", "cluster", clusterName)
-					default:
-						log.Info("Control plane is unhealthy", "cluster", clusterName, "status", status)
-					}
+				// if status != lastStatus {
+				switch status {
+				case controlplane.ControlPlaneReady:
+					log.Info("Control plane is healthy", "cluster", clusterName)
+				case controlplane.ControlPlaneUnreachable:
+					log.Error(err, "Control plane is unreachable", "cluster", clusterName)
+				default:
+					log.Info("Control plane is unhealthy", "cluster", clusterName, "status", status)
+				}
 
-					lastStatus = status
+				// lastStatus = status
 
-					if status != controlplane.ControlPlaneReady {
-						log.Info("Triggering migration reconciliation due to control plane issue", "cluster", clusterName)
-						if err := r.triggerMigrationNodeCP(ctx, clusterName, "control-plane unhealthy or fault"); err != nil {
-							log.Error(err, "Failed to trigger migration")
-						}
+				if status != controlplane.ControlPlaneReady {
+					log.Info("Triggering migration reconciliation due to control plane issue", "cluster", clusterName)
+					if err := r.triggerMigrationNodeCP(ctx, clusterName, "control-plane unhealthy or fault"); err != nil {
+						log.Error(err, "Failed to trigger migration")
 					}
 				}
+				// }
 
 			case <-monitorCtx.Done():
 				return
