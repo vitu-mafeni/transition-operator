@@ -242,7 +242,7 @@ export MINIO_BUCKET="checkpoints"
 export REPOSITORY="vitu1"
 export SECRET_NAME_REF="reg-credentials"
 export SECRET_NAMESPACE_REF="default"
-export REGISTRY_URL="http://docker.io"
+export REGISTRY_URL="docker.io"
 export HEARTBEAT_FAULT_DELAY=20
 
 export GIT_SERVER_URL="http://47.129.115.173:31413"
