@@ -614,80 +614,80 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 	req ctrl.Request,
 	log logr.Logger,
 ) {
-	if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
-		log.Info("Applying transition policy to specific pods on node", "node", node.Name)
+	// if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
+	// 	log.Info("Applying transition policy to specific pods on node", "node", node.Name)
 
-		processed := make(map[string]struct{}) // To avoid duplicate transitions
+	processed := make(map[string]struct{}) // To avoid duplicate transitions
 
-		for _, pod := range podList.Items {
-			namespace := pod.Namespace
-			workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
-			workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
+	for _, pod := range podList.Items {
+		namespace := pod.Namespace
+		workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
+		workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
 
-			var annotations map[string]string
+		var annotations map[string]string
 
-			// --- Step 1: Pod-level annotations ---
-			if !hasOwner {
-				// If no owner, skip to avoid pod-level checkpoint creation
-				log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
-				continue
-				// If you want to enable pod-level checkpoint creation, uncomment the following line
-				// annotations = pod.Annotations
+		// --- Step 1: Pod-level annotations ---
+		if !hasOwner {
+			// If no owner, skip to avoid pod-level checkpoint creation
+			log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
+			continue
+			// If you want to enable pod-level checkpoint creation, uncomment the following line
+			// annotations = pod.Annotations
 
+		}
+
+		// --- Step 2: Parent workload annotations ---
+		parentObject := &metav1.PartialObjectMetadata{}
+		if hasOwner {
+			parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+			if err != nil {
+				log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
 			}
-
-			// --- Step 2: Parent workload annotations ---
-			parentObject := &metav1.PartialObjectMetadata{}
-			if hasOwner {
-				parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
-				if err != nil {
-					log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
-				}
-				if parentAnnotations != nil {
-					annotations = parentAnnotations.Annotations
-					parentObject.Kind = parentKind
-					parentObject.Name = parentAnnotations.Name
-					parentObject.Namespace = parentAnnotations.Namespace
-				}
-			}
-
-			if annotations == nil {
-				continue
-			}
-
-			for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
-				if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-					annotations["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
-
-					if helpers.IsPackageTransitioned(clusterPolicy, transitionPackage) {
-						log.Info("Package already transitioned; skipping", "package", transitionPackage.Name, "pod", pod.Name)
-						continue
-					}
-
-					// Deduplicate by workload and package
-					key := fmt.Sprintf("%s/%s", workloadID, transitionPackage.Name)
-					if _, seen := processed[key]; seen {
-						continue
-					}
-					processed[key] = struct{}{}
-
-					// log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
-					if transitionPackage.LiveStatePackage {
-						log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
-						r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-					} else {
-						r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-					}
-
-				}
+			if parentAnnotations != nil {
+				annotations = parentAnnotations.Annotations
+				parentObject.Kind = parentKind
+				parentObject.Name = parentAnnotations.Name
+				parentObject.Namespace = parentAnnotations.Namespace
 			}
 		}
 
-	} else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
-		r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
-	} else {
-		log.Info("Invalid or unspecified select mode; skipping policy application")
+		if annotations == nil {
+			continue
+		}
+
+		for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
+			if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
+				annotations["transition.dcnlab.ssu.ac.kr/packageName"] == transitionPackage.Name {
+
+				if helpers.IsPackageTransitioned(clusterPolicy, transitionPackage) {
+					log.Info("Package already transitioned; skipping", "package", transitionPackage.Name, "pod", pod.Name)
+					continue
+				}
+
+				// Deduplicate by workload and package
+				key := fmt.Sprintf("%s/%s", workloadID, transitionPackage.Name)
+				if _, seen := processed[key]; seen {
+					continue
+				}
+				processed[key] = struct{}{}
+
+				// log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
+				if transitionPackage.LiveStatePackage {
+					log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
+					r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+				} else {
+					r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
+				}
+
+			}
+		}
 	}
+
+	// } else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
+	// 	r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
+	// } else {
+	// 	log.Info("Invalid or unspecified select mode; skipping policy application")
+	// }
 }
 
 func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
@@ -1090,7 +1090,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 		}
 
 		workloadClient := clusterClient
-		const checkInterval = 3 * time.Second
+		const checkInterval = 3 * time.Second // Check every 3 seconds, change to desired interval for fault detection time for the control-plane
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
