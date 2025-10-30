@@ -929,7 +929,7 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 	// log.Info("Handling node failure controller", "node", nodeName, "cluster", clusterName)
 
 	// trigger migration
-	if err := r.triggerMigrationFromHeartBeat(ctx, nodeName, clusterName); err != nil {
+	if err := r.triggerMigrationNodeCP(ctx, clusterName, "heartbeat node unhealthy"); err != nil {
 		log.Error(err, "Failed to trigger migration")
 		return err
 	}
@@ -937,9 +937,9 @@ func (r *ClusterPolicyReconciler) ReconcileClusterPoliciesForNode(ctx context.Co
 	return nil
 }
 
-func (r *ClusterPolicyReconciler) triggerMigrationFromHeartBeat(ctx context.Context, nodeName string, clusterName string) error {
+func (r *ClusterPolicyReconciler) triggerMigrationNodeCP(ctx context.Context, clusterName, migrationType string) error {
 	log := logf.FromContext(ctx)
-	// log.Info("Triggering migration from heartbeat  node unhealthy", "node", nodeName, "cluster", clusterName)
+	log.Info("Triggering migration from "+migrationType, "cluster", clusterName)
 
 	req := r.Client
 
@@ -1090,7 +1090,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 		}
 
 		workloadClient := clusterClient
-		const checkInterval = 3 * time.Second // Check every 3 seconds, change to desired interval for fault detection time for the control-plane
+		const checkInterval = 1 * time.Second // Check every 1 second, change to desired interval for fault detection time for the control-plane
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
@@ -1105,7 +1105,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 				if err != nil {
 					status = controlplane.ControlPlaneUnreachable
 				}
-
+				log.Info("Control plane status: " + string(status) + " for ClusterName: " + clusterName)
 				// Log only when status changes
 				if status != lastStatus {
 					switch status {
@@ -1121,7 +1121,9 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 
 					if status != controlplane.ControlPlaneReady {
 						log.Info("Triggering migration reconciliation due to control plane issue", "cluster", clusterName)
-						// Optionally enqueue reconcile here
+						if err := r.triggerMigrationNodeCP(ctx, clusterName, "control-plane unhealthy or fault"); err != nil {
+							log.Error(err, "Failed to trigger migration")
+						}
 					}
 				}
 

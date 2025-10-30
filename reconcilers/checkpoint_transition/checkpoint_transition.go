@@ -68,12 +68,20 @@ func PerformWorkloadClusterCheckpointAction(
 		if err != nil {
 			log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
 		}
+
 		if parentAnnotations != nil {
 			annotations = parentAnnotations.Annotations
 			parentObject.Kind = parentKind
 			parentObject.Name = parentAnnotations.Name
 			parentObject.Namespace = parentAnnotations.Namespace
+			parentObject.Annotations = annotations
 		}
+
+		// if val, ok := parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/packageName"]; ok {
+		// 	log.Info("Annotation found", "value", val)
+
+		// 	log.Info("Parent Annotations", "annotations", parentAnnotations.Annotations)
+		// }
 
 		if annotations == nil {
 			continue
@@ -177,11 +185,13 @@ func CreateCheckpointCR(
 	}
 
 	if parentObject != nil {
+		// log.Info("Annotations Creating ", "annotations", parentObject.Annotations)
 		checkpoint.Spec.ResourceRef = transitionv1.ResourceRef{
-			APIVersion: parentObject.APIVersion,
-			Kind:       parentObject.Kind,
-			Name:       parentObject.Name,
-			Namespace:  parentObject.Namespace,
+			APIVersion:  parentObject.APIVersion,
+			Kind:        parentObject.Kind,
+			Name:        parentObject.Name,
+			Namespace:   parentObject.Namespace,
+			Annotations: parentObject.Annotations,
 		}
 	}
 
