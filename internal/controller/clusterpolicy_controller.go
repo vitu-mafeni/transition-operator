@@ -1075,73 +1075,71 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 
 	go func() {
 		defer func() {
-			// Cleanup when done
 			monitorRegistryMu.Lock()
 			delete(monitorRegistry, clusterName)
 			monitorRegistryMu.Unlock()
 			log.Info("Stopped control plane health monitor", "cluster", clusterName)
 		}()
 
-		// Retrieve the CAPI cluster and workload client once
-		capiCluster, err := capictrl.GetCapiClusterFromName(monitorCtx, clusterName, "default", r.Client)
-		if err != nil {
-			log.Error(err, "Failed to get CAPI cluster for control plane health monitor", "cluster", clusterName)
-			return
-		}
-
-		clusterClient, _, ready, err := capiCluster.GetClusterClient(monitorCtx)
-		if err != nil {
-			log.Error(err, "Failed to get workload cluster client", "cluster", clusterName)
-			return
-		}
-		if !ready {
-			log.Info("Cluster not ready for control plane health monitor", "cluster", clusterName)
-			return
-		}
-
-		workloadClient := clusterClient
-		const checkInterval = 1 * time.Second // Check every 1 second, change to desired interval for fault detection time for the control-plane
+		const checkInterval = 1 * time.Second
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
-
-		// var lastStatus controlplane.ControlPlaneStatus = "Unknown"
 
 		for {
 			select {
 			case <-ticker.C:
+				capiCluster, err := capictrl.GetCapiClusterFromName(monitorCtx, clusterName, "default", r.Client)
+				if err != nil {
+					log.Error(err, "Failed to get CAPI cluster", "cluster", clusterName)
+					continue
+				}
+
+				clusterClient, _, ready, err := capiCluster.GetClusterClient(monitorCtx)
+				if err != nil || !ready {
+					log.Info("Cluster not ready yet; retrying", "cluster", clusterName)
+					continue
+				}
+
 				checkCtx, cancelCheck := context.WithTimeout(monitorCtx, 2*time.Second)
-				status, err := controlplane.CheckControlPlaneStatus(checkCtx, workloadClient)
+				status, err := controlplane.CheckControlPlaneStatus(checkCtx, clusterClient)
 				cancelCheck()
+
 				if err != nil {
 					status = controlplane.ControlPlaneUnreachable
 				}
-				log.Info("Control plane status: " + string(status) + " for ClusterName: " + clusterName)
-				// Log only when status changes
-				// if status != lastStatus {
-				switch status {
-				case controlplane.ControlPlaneReady:
-					log.Info("Control plane is healthy", "cluster", clusterName)
-				case controlplane.ControlPlaneUnreachable:
-					log.Error(err, "Control plane is unreachable", "cluster", clusterName)
-				default:
-					log.Info("Control plane is unhealthy", "cluster", clusterName, "status", status)
-				}
 
-				// lastStatus = status
+				log.Info("Control plane status: "+string(status), "cluster", clusterName)
 
 				if status != controlplane.ControlPlaneReady {
-					log.Info("Triggering migration reconciliation due to control plane issue", "cluster", clusterName)
-					if err := r.triggerMigrationNodeCP(ctx, clusterName, "control-plane unhealthy or fault"); err != nil {
-						log.Error(err, "Failed to trigger migration")
+
+					var refreshedPolicy transitionv1.ClusterPolicy
+					if err := r.Client.Get(ctx, types.NamespacedName{
+						Name:      clusterPolicy.Name,
+						Namespace: clusterPolicy.Namespace,
+					}, &refreshedPolicy); err != nil {
+						log.Error(err, "Failed to fetch latest ClusterPolicy", "cluster", clusterName)
+						continue
+					}
+
+					if isClusterPolicyStatusEmpty(refreshedPolicy.Status) {
+
+						log.Info("Triggering migration reconciliation due to control plane issue", "cluster", clusterName)
+						if err := r.triggerMigrationNodeCP(ctx, clusterName, "control-plane unhealthy or fault"); err != nil {
+							log.Error(err, "Failed to trigger migration")
+						}
 					}
 				}
-				// }
 
 			case <-monitorCtx.Done():
 				return
 			}
 		}
 	}()
+
+}
+func isClusterPolicyStatusEmpty(status transitionv1.ClusterPolicyStatus) bool {
+
+	return len(status.TransitionedPackages) == 0
 }
 
 /*
