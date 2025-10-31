@@ -106,8 +106,9 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 
 	}
-	// Start control plane health monitor for the workload cluster if not already running
-	go r.StartWorkloadClusterControlPlaneHealthMonitor(ctx, *clusterList, *clusterPolicy)
+	// Start control plane health monitor for the workload cluster if not already running.
+	// Use a non-request-scoped context so the monitor is not cancelled when Reconcile returns.
+	go r.StartWorkloadClusterControlPlaneHealthMonitor(context.Background(), *clusterList, *clusterPolicy)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
@@ -1086,7 +1087,6 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 			timeoutWindow = 5 * time.Second // same logic as heartbeat timeout
 			warmupPeriod  = 5 * time.Second // skip detection during initial startup
 		)
-
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 		startupTime := time.Now()
@@ -1131,20 +1131,26 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 				log.Info("Control Plane Status",
 					"cluster", clusterName,
 					"status", string(status),
-					"timestamp", now.Format("15:04:05.000"),
+					"timestamp", time.Now().Format("15:04:05.000"),
 				)
 
 				if status == controlplane.ControlPlaneReady {
-					state.TLastHeartbeat = now
+					state.TLastHeartbeat = time.Now()
 					state.IsTriggered = false
 					state.TDetected = time.Time{}
 					continue
 				}
 
 				// ---- Time-based control-plane fault detection ----
+				// Check silence duration
 				silence := now.Sub(state.TLastHeartbeat)
-				if !state.IsTriggered && silence > timeoutWindow {
+
+				if state.TDetected.IsZero() {
 					state.TDetected = now
+				}
+
+				if !state.IsTriggered && silence > timeoutWindow {
+					// state.TDetected = state.TLastHeartbeat
 					state.IsTriggered = true
 					detectionTime := state.TDetected.Sub(state.TLastHeartbeat)
 
@@ -1177,7 +1183,6 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 							log.Error(err, "Failed to trigger migration")
 						}
 					}
-					// }
 				}
 
 			case <-monitorCtx.Done():
