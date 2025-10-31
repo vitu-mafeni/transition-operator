@@ -265,7 +265,7 @@ func MonitorNodes(
 				st.IsTriggered = true
 				detectionTime := st.TDetected.Sub(st.TLastHeartbeat)
 
-				log.Info("Node Unhealthy - triggering recovery",
+				log.Info("Node Unhealthy detected - triggering recovery",
 					"nodeName", hb.NodeName,
 					"ip", hb.IPAddress,
 					"T_lastHeartbeat", st.TLastHeartbeat.Format("15:04:05.000"),
