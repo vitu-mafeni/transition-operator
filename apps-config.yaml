@@ -1,0 +1,12 @@
+# Example apps.yaml
+- namespace: default
+  label: app=video
+  app_url: 3.0.52.147
+  app_port: 30080
+  app_type: http
+
+- namespace: default
+  label: app=redis
+  app_url: 3.0.52.147
+  app_port: 31075
+  app_type: redis

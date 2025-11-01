@@ -4,6 +4,8 @@ from kubernetes import client, config, watch
 import time
 import http.client
 import redis
+import threading
+import yaml
 
 
 def timestamp_now():
@@ -57,7 +59,7 @@ def check_redis_readiness(app_url, app_port):
 
 
 
-def monitor_pod_events(namespace, label_selector, app_url, app_port,  app_type):
+def monitor_pod_events(namespace, label_selector, app_url, app_port,  app_type, app_name=None):
     """
     Monitor for new pods added or recreated during node draining and measure time metrics.
 
@@ -118,7 +120,7 @@ def monitor_pod_events(namespace, label_selector, app_url, app_port,  app_type):
                             app_ready_time = time.time() * 1000
                             app_ready_timestamp = timestamp_now()
                             #print(f"Service Recovery Completed At: {app_ready_timestamp}")
-                            print(f"[{time.strftime('%H:%M:%S')}] Application is accessible!")
+                            print(f"[{time.strftime('%H:%M:%S')}] Application '{app_name or app_url}' is accessible!")
                             break
                         #time.sleep(1)
 
@@ -141,31 +143,44 @@ def monitor_pod_events(namespace, label_selector, app_url, app_port,  app_type):
             print(f"[ERROR] {e}")
             #time.sleep(1)  # Avoid tight retry loops on errors
 
-# Monitor for new pods and migrations
+def run_monitor_for_app(app_cfg):
+    """
+    Spawn a monitor for a single app described by app_cfg dict with keys:
+      namespace, label, app_url, app_port, app_type
+    """
+    namespace = app_cfg.get("namespace", "default")
+    label = app_cfg.get("label", "app=video")
+    app_url = app_cfg["app_url"]
+    app_port = int(app_cfg["app_port"])
+    app_type = app_cfg.get("app_type", "http")
+    app_name = app_cfg.get("name") or app_cfg.get("label") or app_url
+    print(f"[INFO] Starting monitor for {app_name} ({app_url}:{app_port}) namespace={namespace} label={label} type={app_type}")
+    monitor_pod_events(namespace=namespace, label_selector=label, app_url=app_url, app_port=app_port, app_type=app_type, app_name=app_name)
 
-#monitor_pod_events(
-#    namespace="default",
-#    label_selector="app=video",
-#    app_url="52.221.201.236",
-#    app_port=30080,    #redis:31625, mongo:30257
-#    app_type="http"  # Use "http" for HTTP-based apps or "redis" for Redis
-#)
-
-
+def load_apps_from_file(path):
+    with open(path, "r") as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, list):
+        raise ValueError("apps file must contain a YAML list of app objects")
+    return data
 
 # ========== Entry Point ==========
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Kubernetes Application Recovery Measurement Tool")
+    parser.add_argument("--apps-config", type=str, default="",
+                        help="YAML file containing list of apps to monitor concurrently")
     parser.add_argument("--kubeconfig", type=str, default="~/.kube/config",
                         help="Path to kubeconfig file (default: ~/.kube/config)")
     parser.add_argument("--namespace", type=str, default="default",
                         help="Kubernetes namespace to monitor (default: default)")
     parser.add_argument("--label", type=str, default="app=video",
                         help="Label selector for target pods (default: app=video)")
-    parser.add_argument("--app-url", type=str, required=True,
+    parser.add_argument("--app-name", type=str,
+                        help="Optional application name to show in logs")
+    parser.add_argument("--app-url", type=str,
                         help="Application endpoint IP or hostname")
-    parser.add_argument("--app-port", type=int, required=True,
+    parser.add_argument("--app-port", type=int,
                         help="Application service port")
     parser.add_argument("--app-type", type=str, choices=["http", "redis"], default="http",
                         help="Type of application for readiness check (default: http)")
@@ -175,13 +190,26 @@ if __name__ == "__main__":
     config.load_kube_config(config_file=kubeconfig_path)
 
     print(f"[INFO] Loaded kubeconfig from {kubeconfig_path}")
-    print(f"[INFO] Monitoring namespace={args.namespace}, label={args.label}, app={args.app_url}:{args.app_port}")
-
-    monitor_pod_events(
-        namespace=args.namespace,
-        label_selector=args.label,
-        app_url=args.app_url,
-        app_port=args.app_port,
-        app_type=args.app_type,
-    )
+    if args.apps_config:
+        apps = load_apps_from_file(args.apps_config)
+        threads = []
+        for a in apps:
+            t = threading.Thread(target=run_monitor_for_app, args=(a,), daemon=True)
+            t.start()
+            threads.append(t)
+        # join threads (monitor loops are infinite; join will keep the main thread alive)
+        for t in threads:
+            t.join()
+    else:
+        if not args.app_url or not args.app_port:
+            parser.error("Either --apps-config or both --app-url and --app-port must be provided")
+        print(f"[INFO] Monitoring namespace={args.namespace}, label={args.label}, app={args.app_url}:{args.app_port}")
+        monitor_pod_events(
+            namespace=args.namespace,
+            label_selector=args.label,
+            app_url=args.app_url,
+            app_port=args.app_port,
+            app_type=args.app_type,
+            app_name=args.app_name,
+        )
 

@@ -106,8 +106,9 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 
 	}
-	// Start control plane health monitor for the workload cluster if not already running
-	go r.StartWorkloadClusterControlPlaneHealthMonitor(ctx, *clusterList, *clusterPolicy)
+	// Start control plane health monitor for the workload cluster if not already running.
+	// Use a non-request-scoped context so the monitor is not cancelled when Reconcile returns.
+	go r.StartWorkloadClusterControlPlaneHealthMonitor(context.Background(), *clusterList, *clusterPolicy)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
@@ -1081,13 +1082,31 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 			log.Info("Stopped control plane health monitor", "cluster", clusterName)
 		}()
 
-		const checkInterval = 1 * time.Second
+		const (
+			checkInterval = 1 * time.Second
+			timeoutWindow = 5 * time.Second // same logic as heartbeat timeout
+			warmupPeriod  = 5 * time.Second // skip detection during initial startup
+		)
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
+		startupTime := time.Now()
+
+		type CPState struct {
+			TLastHeartbeat time.Time
+			TDetected      time.Time
+			IsTriggered    bool
+		}
+
+		state := &CPState{TLastHeartbeat: startupTime}
 
 		for {
 			select {
 			case <-ticker.C:
+				now := time.Now()
+				if now.Sub(startupTime) < warmupPeriod {
+					continue // Skip checks during warmup period
+				}
+
 				capiCluster, err := capictrl.GetCapiClusterFromName(monitorCtx, clusterName, "default", r.Client)
 				if err != nil {
 					log.Error(err, "Failed to get CAPI cluster", "cluster", clusterName)
@@ -1108,9 +1127,45 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 					status = controlplane.ControlPlaneUnreachable
 				}
 
-				log.Info("Control plane status: "+string(status), "cluster", clusterName)
+				// log.Info("Control plane status: "+string(status), "cluster", clusterName)
+				log.Info("Control Plane Status",
+					"cluster", clusterName,
+					"status", string(status),
+					"timestamp", time.Now().Format("15:04:05.000"),
+				)
 
-				if status != controlplane.ControlPlaneReady {
+				if status == controlplane.ControlPlaneReady {
+					state.TLastHeartbeat = time.Now()
+					state.IsTriggered = false
+					state.TDetected = time.Time{}
+					continue
+				}
+
+				// ---- Time-based control-plane fault detection ----
+				// Check silence duration
+				silence := now.Sub(state.TLastHeartbeat)
+
+				if state.TDetected.IsZero() {
+					state.TDetected = now
+				}
+
+				if !state.IsTriggered && silence > timeoutWindow {
+					// state.TDetected = state.TLastHeartbeat
+					state.IsTriggered = true
+					detectionTime := state.TDetected.Sub(state.TLastHeartbeat)
+
+					log.Info("Control Plane Unhealthy Detected - triggering recovery",
+						"cluster", clusterName,
+						"status", string(status),
+						"T_lastHeartbeat", state.TLastHeartbeat.Format("15:04:05.000"),
+						"T_detected", state.TDetected.Format("15:04:05.000"),
+						"DetectionTime", detectionTime.String(),
+						"T_recoveryStart", now.Format("15:04:05.000"),
+					)
+
+					// log.Info("Control plane status: "+string(status), "cluster", clusterName)
+
+					// if status != controlplane.ControlPlaneReady {
 
 					var refreshedPolicy transitionv1.ClusterPolicy
 					if err := r.Client.Get(ctx, types.NamespacedName{

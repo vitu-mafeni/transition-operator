@@ -207,8 +207,8 @@ func MonitorNodes(
 	log := logf.FromContext(ctx)
 
 	checkInterval := 100 * time.Millisecond
-	//timeoutWindow := 5 * time.Second // single 5s window for detection + trigger
-	warmupPeriod := 5 * time.Second // skip detection for first 5s after start
+	timeoutWindow := 5 * time.Second // single 5s window for detection + trigger
+	warmupPeriod := 5 * time.Second  // skip detection for first 5s after start
 	startupTime := time.Now()
 
 	ticker := time.NewTicker(checkInterval)
@@ -218,7 +218,6 @@ func MonitorNodes(
 		TLastHeartbeat time.Time
 		TDetected      time.Time
 		IsTriggered    bool
-		MissCount      int
 	}
 
 	state := make(map[string]*NodeState)
@@ -248,30 +247,30 @@ func MonitorNodes(
 				)
 				st.TLastHeartbeat = hb.ReceivedAt
 				st.IsTriggered = false
-				st.MissCount = 0
+				// st.MissCount = 0
 				st.TDetected = time.Time{} // reset detection mark
 				continue
 			}
 
 			// Check silence duration
-			//silence := now.Sub(st.TLastHeartbeat)
-			st.MissCount++
+			silence := now.Sub(st.TLastHeartbeat)
+			// st.MissCount++
 			if st.TDetected.IsZero() {
 				st.TDetected = now
 			}
-			//if !st.IsTriggered && silence > timeoutWindow {
-			if !st.IsTriggered && st.MissCount >= 12 {
-				st.TDetected = time.Now()
+			if !st.IsTriggered && silence > timeoutWindow {
+				// if !st.IsTriggered && st.MissCount >= 12 {
+				// st.TDetected = time.Now()
 				st.IsTriggered = true
 				detectionTime := st.TDetected.Sub(st.TLastHeartbeat)
 
-				log.Info("Node Unhealthy - triggering recovery",
+				log.Info("Node Unhealthy detected - triggering recovery",
 					"nodeName", hb.NodeName,
 					"ip", hb.IPAddress,
 					"T_lastHeartbeat", st.TLastHeartbeat.Format("15:04:05.000"),
 					"T_detected", st.TDetected.Format("15:04:05.000"),
 					"DetectionTime", detectionTime.String(),
-					"T_recoveryStart", st.TDetected.Format("15:04:05.000"),
+					"T_recoveryStart", now.Format("15:04:05.000"),
 				)
 				machine := &capiv1beta1.Machine{}
 				//  AWS machine and node naming is different so we have to check if the node belongs to AWS first
