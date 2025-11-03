@@ -40,6 +40,7 @@ import (
 	transitionv1 "github.com/vitu1234/transition-operator/api/v1"
 	capictrl "github.com/vitu1234/transition-operator/reconcilers/capi"
 	checkpointtransition "github.com/vitu1234/transition-operator/reconcilers/checkpoint_transition"
+	"github.com/vitu1234/transition-operator/reconcilers/cnifault"
 	"github.com/vitu1234/transition-operator/reconcilers/controlplane"
 
 	// "github.com/vitu1234/transition-operator/reconcilers/controlplane"
@@ -109,6 +110,7 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Start control plane health monitor for the workload cluster if not already running.
 	// Use a non-request-scoped context so the monitor is not cancelled when Reconcile returns.
 	go r.StartWorkloadClusterControlPlaneHealthMonitor(context.Background(), *clusterList, *clusterPolicy)
+	go r.StartWorkloadClusterCNIHealthMonitor(context.Background(), *clusterPolicy, *clusterList)
 
 	// iterate through all package selectors and check if its a live package
 	for _, pkg := range clusterPolicy.Spec.PackageSelectors {
@@ -1192,6 +1194,143 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 	}()
 
 }
+
+// StartWorkloadClusterCNIHealthMonitor runs a lightweight CNI health checker
+// that periodically verifies if a cluster's CNI is healthy.
+func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
+	ctx context.Context,
+	clusterPolicy transitionv1.ClusterPolicy,
+	clusters capiv1beta1.ClusterList,
+) {
+
+	log := logf.FromContext(ctx)
+	clusterName := clusterPolicy.Spec.ClusterSelector.Name
+
+	// --- Ensure only one monitor per cluster ---
+	monitorRegistryMu.Lock()
+	if _, exists := monitorRegistry[clusterName]; exists {
+		log.Info("CNI monitor already running", "cluster", clusterName)
+		monitorRegistryMu.Unlock()
+		return
+	}
+	monitorCtx, cancel := context.WithCancel(ctx)
+	monitorRegistry[clusterName] = cancel
+	monitorRegistryMu.Unlock()
+
+	log.Info("Starting CNI health monitor", "cluster", clusterName)
+
+	go func() {
+		defer func() {
+			monitorRegistryMu.Lock()
+			delete(monitorRegistry, clusterName)
+			monitorRegistryMu.Unlock()
+			log.Info("Stopped CNI health monitor", "cluster", clusterName)
+		}()
+
+		const (
+			checkInterval = 1 * time.Second
+			timeoutWindow = 3 * time.Second // detect fault if no heartbeat
+			warmupPeriod  = 2 * time.Second // skip detection during initial startup
+		)
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+		startupTime := time.Now()
+
+		type CNIState struct {
+			TLastHeartbeat time.Time
+			TDetected      time.Time
+			IsTriggered    bool
+		}
+
+		state := &CNIState{TLastHeartbeat: startupTime}
+
+		for {
+			select {
+			case <-ticker.C:
+				now := time.Now()
+				if now.Sub(startupTime) < warmupPeriod {
+					continue // skip during warmup
+				}
+
+				// --- Get workload cluster client
+				capiCluster, err := capictrl.GetCapiClusterFromName(monitorCtx, clusterName, "default", r.Client)
+				if err != nil {
+					log.Error(err, "Failed to get CAPI cluster", "cluster", clusterName)
+					continue
+				}
+
+				workloadClusterClient, workloadClusterRestConfig, ready, err := capiCluster.GetClusterClient(monitorCtx)
+				if err != nil || !ready {
+					log.Info("Cluster not ready yet; retrying", "cluster", clusterName)
+					continue
+				}
+
+				// --- CNI check with timeout
+				checkCtx, cancelCheck := context.WithTimeout(monitorCtx, 2*time.Second)
+				status, err := cnifault.CheckCNIStatus(checkCtx, workloadClusterClient, workloadClusterRestConfig)
+				cancelCheck()
+
+				if err != nil {
+					status = cnifault.CNINotReady
+				}
+
+				log.Info("CNI Status",
+					"cluster", clusterName,
+					"status", string(status),
+					"timestamp", now.Format("15:04:05.000"),
+				)
+
+				if status == cnifault.CNIReady {
+					state.TLastHeartbeat = now
+					state.IsTriggered = false
+					state.TDetected = time.Time{}
+					continue
+				}
+
+				// ---- Time-based fault detection ----
+				silence := now.Sub(state.TLastHeartbeat)
+				if state.TDetected.IsZero() {
+					state.TDetected = now
+				}
+
+				if !state.IsTriggered && silence > timeoutWindow {
+					state.IsTriggered = true
+					detectionTime := state.TDetected.Sub(state.TLastHeartbeat)
+
+					log.Info("CNI Unhealthy Detected - triggering recovery",
+						"cluster", clusterName,
+						"status", string(status),
+						"T_lastHeartbeat", state.TLastHeartbeat.Format("15:04:05.000"),
+						"T_detected", state.TDetected.Format("15:04:05.000"),
+						"DetectionTime", detectionTime.String(),
+						"T_recoveryStart", now.Format("15:04:05.000"),
+					)
+
+					// --- Refresh ClusterPolicy and trigger migration if needed ---
+					var refreshedPolicy transitionv1.ClusterPolicy
+					if err := r.Client.Get(ctx, types.NamespacedName{
+						Name:      clusterPolicy.Name,
+						Namespace: clusterPolicy.Namespace,
+					}, &refreshedPolicy); err != nil {
+						log.Error(err, "Failed to fetch latest ClusterPolicy", "cluster", clusterName)
+						continue
+					}
+
+					if isClusterPolicyStatusEmpty(refreshedPolicy.Status) {
+						log.Info("Triggering migration reconciliation due to CNI issue", "cluster", clusterName)
+						// if err := r.triggerMigrationNodeCP(ctx, clusterName, "CNI unhealthy or fault"); err != nil {
+						// 	log.Error(err, "Failed to trigger migration")
+						// }
+					}
+				}
+
+			case <-monitorCtx.Done():
+				return
+			}
+		}
+	}()
+}
+
 func isClusterPolicyStatusEmpty(status transitionv1.ClusterPolicyStatus) bool {
 
 	return len(status.TransitionedPackages) == 0
