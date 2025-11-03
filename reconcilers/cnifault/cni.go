@@ -9,6 +9,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
@@ -75,7 +76,7 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 		return CNINotReady, errors.New("no target pods found")
 	}
 
-	fmt.Printf("DEBUG: Found %d all pods\n", len(allPods))
+	// fmt.Printf("DEBUG: Found %d all pods\n", len(allPods))
 
 	// --- Run probes: each net-test pod probes one pod on a different node
 	for _, src := range netTestPods {
@@ -90,19 +91,20 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 			continue
 		}
 
-		fmt.Printf("DEBUG: target pod is %s", targetPod.Name)
-		fmt.Printf("DEBUG: target pod IP{} %s", targetPod.Status.PodIP)
+		// fmt.Printf("DEBUG: target pod is %s", targetPod.Name)
+		// fmt.Printf("DEBUG: target pod IP{} %s", targetPod.Status.PodIP)
 
 		targets := []string{targetPod.Status.PodIP}
 		if err := probePodNetwork(ctx, workloadClusterRestConfig, &src, targets); err != nil {
+			fmt.Println(err, " Error err error")
 			return CNINotReady, fmt.Errorf("network probe failed from pod %s/%s to pod %s/%s: %w",
 				src.Namespace, src.Name, targetPod.Namespace, targetPod.Name, err)
 		}
 
-		fmt.Printf("DEBUG: ------ finished for target pod is %s", targetPod.Name)
+		// fmt.Printf("DEBUG: ------ finished for target pod is %s", targetPod.Name)
 
 	}
-fmt.Printf("DEBUG: return CNI status %s", "ss")
+	// fmt.Printf("DEBUG: return CNI status %s", "ss")
 	return CNIReady, nil
 }
 
@@ -119,7 +121,7 @@ func listNetTestPods(ctx context.Context, c client.Client) ([]v1.Pod, error) {
 			netPods = append(netPods, p)
 		}
 	}
-	fmt.Printf("DEBUG: Found %d net-test pods\n", len(netPods))
+	// fmt.Printf("DEBUG: Found %d net-test pods\n", len(netPods))
 	return netPods, nil
 }
 
@@ -186,15 +188,18 @@ func sampleAppPods(ctx context.Context, c client.Client, limit int) ([]v1.Pod, e
 
 // probePodNetwork execs a lightweight ping inside the pod
 func probePodNetwork(ctx context.Context, restConfig *rest.Config, pod *v1.Pod, targets []string) error {
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
+	}
+
+	// fmt.Printf("DEBUG: probing %s/%s, %d targets\n", pod.Namespace, pod.Name, len(targets))
+
 	for _, target := range targets {
-		cmd := []string{"ping", "-c", "1", "-W", "1", target}
+		cmd := []string{"ping", "-c", "2", "-W", "2", target}
 
-		restClient, err := rest.RESTClientFor(restConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create REST client: %w", err)
-		}
-
-		req := restClient.Post().Resource("pods").
+		req := clientset.CoreV1().RESTClient().Post().
+			Resource("pods").
 			Name(pod.Name).
 			Namespace(pod.Namespace).
 			SubResource("exec").
@@ -206,8 +211,6 @@ func probePodNetwork(ctx context.Context, restConfig *rest.Config, pod *v1.Pod, 
 				Stderr:    true,
 				TTY:       false,
 			}, scheme.ParameterCodec)
-
-		fmt.Printf("DEBUG: probing %s/%s\n", pod.Namespace, pod.Name)
 
 		exec, err := remotecommand.NewSPDYExecutor(restConfig, "POST", req.URL())
 		if err != nil {
@@ -224,13 +227,14 @@ func probePodNetwork(ctx context.Context, restConfig *rest.Config, pod *v1.Pod, 
 			return fmt.Errorf("exec failed: %w, stderr: %s", err, stderr.String())
 		}
 
-		if strings.Contains(stdout.String(), "1 received") {
-			// success
-			return nil
+		// fmt.Printf("DEBUG: probe output: %s\n", stdout.String())
+
+		// BusyBox ping check: "X packets transmitted, X packets received"
+		if strings.Contains(stdout.String(), "1 packets received") ||
+			strings.Contains(stdout.String(), "2 packets received") {
+			return nil // success
 		}
 	}
-
-	fmt.Printf("DEBUG: Pod %s/%s network probe failed to all targets\n", pod.Namespace, pod.Name)
 
 	return fmt.Errorf("all network probes failed")
 }
