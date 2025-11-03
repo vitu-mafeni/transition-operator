@@ -27,41 +27,41 @@ const (
 
 // CheckCNIStatus probes CNI pods and cluster networking using a workload cluster client.
 func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestConfig *rest.Config) (CNIStatus, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	// --- Check CNI pods readiness
-	cniPods, err := listCNIPods(ctx, c)
-	if err != nil {
-		if isNetworkOrTimeoutError(err) {
-			return CNIUnreachable, fmt.Errorf("workload cluster API unreachable: %w", err)
-		}
-		return CNIError, fmt.Errorf("failed to list CNI pods: %w", err)
-	}
-	if len(cniPods) == 0 {
-		return CNINotReady, errors.New("no CNI pods found in workload cluster")
-	}
+	// cniPods, err := listCNIPods(ctx, c)
+	// if err != nil {
+	// 	if isNetworkOrTimeoutError(err) {
+	// 		return CNIUnreachable, fmt.Errorf("workload cluster API unreachable: %w", err)
+	// 	}
+	// 	return CNIError, fmt.Errorf("failed to list CNI pods: %w", err)
+	// }
+	// if len(cniPods) == 0 {
+	// 	return CNINotReady, errors.New("no CNI pods found in workload cluster")
+	// }
 
-	// --- Check readiness of CNI pods
-	gracePeriod := 1 * time.Minute
-	now := time.Now()
-	for _, pod := range cniPods {
-		ready := false
-		for _, cs := range pod.Status.ContainerStatuses {
-			if cs.Ready {
-				ready = true
-				break
-			}
-			if cs.LastTerminationState.Terminated != nil &&
-				cs.LastTerminationState.Terminated.ExitCode != 0 &&
-				now.Sub(cs.State.Running.StartedAt.Time) < gracePeriod {
-				ready = true
-			}
-		}
-		if !ready {
-			return CNINotReady, fmt.Errorf("CNI pod %s/%s not ready yet", pod.Namespace, pod.Name)
-		}
-	}
+	// // --- Check readiness of CNI pods
+	// gracePeriod := 1 * time.Minute
+	// now := time.Now()
+	// for _, pod := range cniPods {
+	// 	ready := false
+	// 	for _, cs := range pod.Status.ContainerStatuses {
+	// 		if cs.Ready {
+	// 			ready = true
+	// 			break
+	// 		}
+	// 		if cs.LastTerminationState.Terminated != nil &&
+	// 			cs.LastTerminationState.Terminated.ExitCode != 0 &&
+	// 			now.Sub(cs.State.Running.StartedAt.Time) < gracePeriod {
+	// 			ready = true
+	// 		}
+	// 	}
+	// 	if !ready {
+	// 		return CNINotReady, fmt.Errorf("CNI pod %s/%s not ready yet", pod.Namespace, pod.Name)
+	// 	}
+	// }
 
 	// --- Get all net-test pods as source pods
 	netTestPods, err := listNetTestPods(ctx, c)
@@ -74,6 +74,8 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 	if err != nil || len(allPods) == 0 {
 		return CNINotReady, errors.New("no target pods found")
 	}
+
+	fmt.Printf("DEBUG: Found %d all pods\n", len(allPods))
 
 	// --- Run probes: each net-test pod probes one pod on a different node
 	for _, src := range netTestPods {
@@ -88,13 +90,19 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 			continue
 		}
 
-		targets := []string{targetPod.Status.PodIP, "kubernetes.default.svc", "8.8.8.8"}
+		fmt.Printf("DEBUG: target pod is %s", targetPod.Name)
+		fmt.Printf("DEBUG: target pod IP{} %s", targetPod.Status.PodIP)
+
+		targets := []string{targetPod.Status.PodIP}
 		if err := probePodNetwork(ctx, workloadClusterRestConfig, &src, targets); err != nil {
 			return CNINotReady, fmt.Errorf("network probe failed from pod %s/%s to pod %s/%s: %w",
 				src.Namespace, src.Name, targetPod.Namespace, targetPod.Name, err)
 		}
-	}
 
+		fmt.Printf("DEBUG: ------ finished for target pod is %s", targetPod.Name)
+
+	}
+fmt.Printf("DEBUG: return CNI status %s", "ss")
 	return CNIReady, nil
 }
 

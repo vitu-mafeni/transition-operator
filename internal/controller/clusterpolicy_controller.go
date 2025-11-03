@@ -1247,10 +1247,19 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 		}{TLastHeartbeat: startupTime}
 
 		// --- Prepare net-test pods once ---
-		if err := r.ensureNetTestPodsOnce(monitorCtx, clusterName); err != nil {
-			log.Error(err, "Failed to create net-test pods for CNI checks", "cluster", clusterName)
+		for {
+			err := r.ensureNetTestPodsOnce(monitorCtx, clusterName)
+			if err != nil {
+				log.Error(err, "Failed to ensure net-test pods, retrying in 5s")
+				select {
+				case <-time.After(5 * time.Second):
+					continue
+				case <-monitorCtx.Done():
+					return
+				}
+			}
+			break // success
 		}
-
 		for {
 			select {
 			case <-ticker.C:
@@ -1394,83 +1403,6 @@ func isClusterPolicyStatusEmpty(status transitionv1.ClusterPolicyStatus) bool {
 
 	return len(status.TransitionedPackages) == 0
 }
-
-/*
-func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
-	ctx context.Context,
-	clusters capiv1beta1.ClusterList,
-	clusterPolicy transitionv1.ClusterPolicy,
-) {
-	log := logf.FromContext(ctx)
-
-	capiCluster, err := capictrl.GetCapiClusterFromName(ctx, clusterPolicy.Spec.ClusterSelector.Name, "default", r.Client)
-	if err != nil {
-		log.Error(err, "Failed to get CAPI cluster for control plane health monitor",
-			"cluster", clusterPolicy.Spec.ClusterSelector.Name)
-		return
-	}
-
-	clusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
-	if err != nil {
-		log.Error(err, "Failed to get workload cluster client for control plane health monitor",
-			"cluster", capiCluster.GetClusterName())
-		return
-	}
-	if !ready {
-		log.Info("Cluster not ready for control plane health monitor",
-			"cluster", capiCluster.GetClusterName())
-		return
-	}
-
-	workloadClusterClient := clusterClient
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	var lastStatus controlplane.ControlPlaneStatus = "Unknown"
-
-	log.Info("control plane health monitor",
-		"cluster", capiCluster.GetClusterName())
-
-	for {
-		select {
-		case <-ticker.C:
-			status, err := controlplane.CheckControlPlaneStatus(ctx, workloadClusterClient)
-			if err != nil {
-				status = controlplane.ControlPlaneUnreachable
-			}
-
-			// --- Only log on state change ---
-			if status != lastStatus {
-				switch status {
-				case controlplane.ControlPlaneReady:
-					log.Info("Control plane is healthy",
-						"cluster", capiCluster.GetClusterName())
-				case controlplane.ControlPlaneUnreachable:
-					log.Error(err, "Control plane is unreachable",
-						"cluster", capiCluster.GetClusterName())
-				default:
-					log.Info("Control plane is unhealthy",
-						"cluster", capiCluster.GetClusterName(),
-						"status", status)
-				}
-
-				lastStatus = status
-
-				if status != controlplane.ControlPlaneReady {
-					log.Info("Triggering reconciliation due to control plane issue",
-						"cluster", capiCluster.GetClusterName())
-					// You can trigger reconcile here if needed
-				}
-			}
-
-		case <-ctx.Done():
-			log.Info("Stopping control plane health monitor",
-				"cluster", capiCluster.GetClusterName())
-			return
-		}
-	}
-}
-*/
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
