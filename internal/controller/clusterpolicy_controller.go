@@ -110,6 +110,8 @@ func (r *ClusterPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	// Start control plane health monitor for the workload cluster if not already running.
 	// Use a non-request-scoped context so the monitor is not cancelled when Reconcile returns.
 	go r.StartWorkloadClusterControlPlaneHealthMonitor(context.Background(), *clusterList, *clusterPolicy)
+
+	// Start CNI health monitor for the workload cluster if not already running.
 	go r.StartWorkloadClusterCNIHealthMonitor(context.Background(), *clusterPolicy, *clusterList)
 
 	// iterate through all package selectors and check if its a live package
@@ -1205,16 +1207,17 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 
 	log := logf.FromContext(ctx)
 	clusterName := clusterPolicy.Spec.ClusterSelector.Name
+	registryKey := clusterName + "-cni" // unique key per type of monitor
 
 	// --- Ensure only one monitor per cluster ---
 	monitorRegistryMu.Lock()
-	if _, exists := monitorRegistry[clusterName]; exists {
+	if _, exists := monitorRegistry[registryKey]; exists {
 		log.Info("CNI monitor already running", "cluster", clusterName)
 		monitorRegistryMu.Unlock()
 		return
 	}
 	monitorCtx, cancel := context.WithCancel(ctx)
-	monitorRegistry[clusterName] = cancel
+	monitorRegistry[registryKey] = cancel
 	monitorRegistryMu.Unlock()
 
 	log.Info("Starting CNI health monitor", "cluster", clusterName)
@@ -1222,7 +1225,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 	go func() {
 		defer func() {
 			monitorRegistryMu.Lock()
-			delete(monitorRegistry, clusterName)
+			delete(monitorRegistry, registryKey)
 			monitorRegistryMu.Unlock()
 			log.Info("Stopped CNI health monitor", "cluster", clusterName)
 		}()
