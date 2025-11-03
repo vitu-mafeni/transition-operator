@@ -50,6 +50,7 @@ import (
 	velero "github.com/vmware-tanzu/velero/pkg/apis/velero/v1"
 
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	capiv1beta1 "sigs.k8s.io/cluster-api/api/v1beta1"
 )
@@ -1207,7 +1208,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 
 	log := logf.FromContext(ctx)
 	clusterName := clusterPolicy.Spec.ClusterSelector.Name
-	registryKey := clusterName + "-cni" // unique key per type of monitor
+	registryKey := clusterName + "-cni" // unique key per monitor
 
 	// --- Ensure only one monitor per cluster ---
 	monitorRegistryMu.Lock()
@@ -1232,30 +1233,33 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 
 		const (
 			checkInterval = 1 * time.Second
-			timeoutWindow = 3 * time.Second // detect fault if no heartbeat
-			warmupPeriod  = 2 * time.Second // skip detection during initial startup
+			timeoutWindow = 3 * time.Second
+			warmupPeriod  = 2 * time.Second
 		)
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 		startupTime := time.Now()
 
-		type CNIState struct {
+		state := struct {
 			TLastHeartbeat time.Time
 			TDetected      time.Time
 			IsTriggered    bool
-		}
+		}{TLastHeartbeat: startupTime}
 
-		state := &CNIState{TLastHeartbeat: startupTime}
+		// --- Prepare net-test pods once ---
+		if err := r.ensureNetTestPodsOnce(monitorCtx, clusterName); err != nil {
+			log.Error(err, "Failed to create net-test pods for CNI checks", "cluster", clusterName)
+		}
 
 		for {
 			select {
 			case <-ticker.C:
 				now := time.Now()
 				if now.Sub(startupTime) < warmupPeriod {
-					continue // skip during warmup
+					continue
 				}
 
-				// --- Get workload cluster client
+				// --- Get workload cluster client ---
 				capiCluster, err := capictrl.GetCapiClusterFromName(monitorCtx, clusterName, "default", r.Client)
 				if err != nil {
 					log.Error(err, "Failed to get CAPI cluster", "cluster", clusterName)
@@ -1268,11 +1272,10 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 					continue
 				}
 
-				// --- CNI check with timeout
+				// --- Check CNI status using persistent net-test pods ---
 				checkCtx, cancelCheck := context.WithTimeout(monitorCtx, 2*time.Second)
 				status, err := cnifault.CheckCNIStatus(checkCtx, workloadClusterClient, workloadClusterRestConfig)
 				cancelCheck()
-
 				if err != nil {
 					status = cnifault.CNINotReady
 				}
@@ -1290,7 +1293,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 					continue
 				}
 
-				// ---- Time-based fault detection ----
+				// --- Time-based fault detection ---
 				silence := now.Sub(state.TLastHeartbeat)
 				if state.TDetected.IsZero() {
 					state.TDetected = now
@@ -1321,9 +1324,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 
 					if isClusterPolicyStatusEmpty(refreshedPolicy.Status) {
 						log.Info("Triggering migration reconciliation due to CNI issue", "cluster", clusterName)
-						// if err := r.triggerMigrationNodeCP(ctx, clusterName, "CNI unhealthy or fault"); err != nil {
-						// 	log.Error(err, "Failed to trigger migration")
-						// }
+						// r.triggerMigrationNodeCP(ctx, clusterName, "CNI unhealthy or fault")
 					}
 				}
 
@@ -1332,6 +1333,61 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 			}
 		}
 	}()
+}
+
+// ensureNetTestPodsOnce creates net-test pods on each worker node if they don't exist yet
+func (r *ClusterPolicyReconciler) ensureNetTestPodsOnce(ctx context.Context, clusterName string) error {
+	capiCluster, err := capictrl.GetCapiClusterFromName(ctx, clusterName, "default", r.Client)
+	if err != nil {
+		return fmt.Errorf("failed to get CAPI cluster: %w", err)
+	}
+
+	workloadClusterClient, _, ready, err := capiCluster.GetClusterClient(ctx)
+	if err != nil || !ready {
+		return fmt.Errorf("cluster not ready: %w", err)
+	}
+
+	// --- List nodes ---
+	var nodeList v1.NodeList
+	if err := workloadClusterClient.List(ctx, &nodeList); err != nil {
+		return fmt.Errorf("failed to list nodes: %w", err)
+	}
+
+	for _, node := range nodeList.Items {
+		if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
+			continue
+		}
+
+		podName := fmt.Sprintf("net-test-%s", node.Name)
+		var existingPod v1.Pod
+		if err := workloadClusterClient.Get(ctx, client.ObjectKey{Namespace: "default", Name: podName}, &existingPod); err == nil {
+			continue // pod already exists
+		}
+
+		pod := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      podName,
+				Namespace: "default",
+			},
+			Spec: v1.PodSpec{
+				NodeName: node.Name,
+				Containers: []v1.Container{
+					{
+						Name:    "busybox",
+						Image:   "busybox:1.35",
+						Command: []string{"sleep", "3600"},
+					},
+				},
+				RestartPolicy: v1.RestartPolicyNever,
+			},
+		}
+
+		if err := workloadClusterClient.Create(ctx, pod); err != nil && !apierrors.IsAlreadyExists(err) {
+			fmt.Printf("failed to create net-test pod %s: %v\n", podName, err)
+		}
+	}
+
+	return nil
 }
 
 func isClusterPolicyStatusEmpty(status transitionv1.ClusterPolicyStatus) bool {

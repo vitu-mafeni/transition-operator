@@ -27,8 +27,7 @@ const (
 
 // CheckCNIStatus probes CNI pods and cluster networking using a workload cluster client.
 func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestConfig *rest.Config) (CNIStatus, error) {
-	// 10-second overall timeout
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// --- Check CNI pods readiness
@@ -39,14 +38,13 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 		}
 		return CNIError, fmt.Errorf("failed to list CNI pods: %w", err)
 	}
-
 	if len(cniPods) == 0 {
 		return CNINotReady, errors.New("no CNI pods found in workload cluster")
 	}
 
+	// --- Check readiness of CNI pods
 	gracePeriod := 1 * time.Minute
 	now := time.Now()
-
 	for _, pod := range cniPods {
 		ready := false
 		for _, cs := range pod.Status.ContainerStatuses {
@@ -54,7 +52,6 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 				ready = true
 				break
 			}
-			// ignore transient recent crashes
 			if cs.LastTerminationState.Terminated != nil &&
 				cs.LastTerminationState.Terminated.ExitCode != 0 &&
 				now.Sub(cs.State.Running.StartedAt.Time) < gracePeriod {
@@ -66,26 +63,65 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 		}
 	}
 
-	// --- Pick a few sample application pods to check networking
-	samplePods, err := sampleAppPods(ctx, c, 2)
-	if err != nil {
-		return CNIError, fmt.Errorf("failed to list sample pods: %w", err)
+	// --- Get all net-test pods as source pods
+	netTestPods, err := listNetTestPods(ctx, c)
+	if err != nil || len(netTestPods) == 0 {
+		return CNINotReady, errors.New("no net-test pods found")
 	}
 
-	if len(samplePods) == 0 {
-		// fallback: no pods to probe
-		return CNIReady, nil
+	// --- Get all pods for target selection
+	allPods, err := listAllPods(ctx, c)
+	if err != nil || len(allPods) == 0 {
+		return CNINotReady, errors.New("no target pods found")
 	}
 
-	// --- Run lightweight network probes
-	targets := []string{"kubernetes.default.svc", "8.8.8.8"}
-	for _, pod := range samplePods {
-		if err := probePodNetwork(ctx, workloadClusterRestConfig, &pod, targets); err != nil {
-			return CNINotReady, fmt.Errorf("network probe failed for pod %s/%s: %w", pod.Namespace, pod.Name, err)
+	// --- Run probes: each net-test pod probes one pod on a different node
+	for _, src := range netTestPods {
+		var targetPod *v1.Pod
+		for i := range allPods {
+			if allPods[i].Spec.NodeName != src.Spec.NodeName {
+				targetPod = &allPods[i]
+				break
+			}
+		}
+		if targetPod == nil {
+			continue
+		}
+
+		targets := []string{targetPod.Status.PodIP, "kubernetes.default.svc", "8.8.8.8"}
+		if err := probePodNetwork(ctx, workloadClusterRestConfig, &src, targets); err != nil {
+			return CNINotReady, fmt.Errorf("network probe failed from pod %s/%s to pod %s/%s: %w",
+				src.Namespace, src.Name, targetPod.Namespace, targetPod.Name, err)
 		}
 	}
 
 	return CNIReady, nil
+}
+
+// listNetTestPods returns pods with names starting with net-test-*
+func listNetTestPods(ctx context.Context, c client.Client) ([]v1.Pod, error) {
+	var podList v1.PodList
+	if err := c.List(ctx, &podList); err != nil {
+		return nil, err
+	}
+
+	var netPods []v1.Pod
+	for _, p := range podList.Items {
+		if strings.HasPrefix(p.Name, "net-test-") && p.Status.Phase == v1.PodRunning {
+			netPods = append(netPods, p)
+		}
+	}
+	fmt.Printf("DEBUG: Found %d net-test pods\n", len(netPods))
+	return netPods, nil
+}
+
+// listAllPods returns all pods in the cluster (any namespace)
+func listAllPods(ctx context.Context, c client.Client) ([]v1.Pod, error) {
+	var podList v1.PodList
+	if err := c.List(ctx, &podList); err != nil {
+		return nil, err
+	}
+	return podList.Items, nil
 }
 
 // listCNIPods returns CNI pods by common namespaces/labels
