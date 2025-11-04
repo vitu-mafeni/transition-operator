@@ -1333,7 +1333,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterCNIHealthMonitor(
 
 					if isClusterPolicyStatusEmpty(refreshedPolicy.Status) {
 						log.Info("Triggering migration reconciliation due to CNI issue", "cluster", clusterName)
-						// r.triggerMigrationNodeCP(ctx, clusterName, "CNI unhealthy or fault")
+						r.triggerMigrationNodeCP(ctx, clusterName, "CNI unhealthy or fault")
 					}
 				}
 
@@ -1363,7 +1363,8 @@ func (r *ClusterPolicyReconciler) ensureNetTestPodsOnce(ctx context.Context, clu
 	}
 
 	for _, node := range nodeList.Items {
-		if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; ok {
+		// only consider control-plane nodes
+		if _, ok := node.Labels["node-role.kubernetes.io/control-plane"]; !ok {
 			continue
 		}
 
@@ -1377,14 +1378,32 @@ func (r *ClusterPolicyReconciler) ensureNetTestPodsOnce(ctx context.Context, clu
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      podName,
 				Namespace: "default",
+				Labels: map[string]string{
+					"app": "net-test",
+				},
 			},
 			Spec: v1.PodSpec{
+				// Option 1: direct scheduling to the control-plane node
 				NodeName: node.Name,
+
+				// Option 2 (more flexible): node selector instead of NodeName
+				// NodeSelector: map[string]string{
+				//     "node-role.kubernetes.io/control-plane": "",
+				// },
+
+				Tolerations: []v1.Toleration{
+					{
+						Key:      "node-role.kubernetes.io/control-plane",
+						Effect:   v1.TaintEffectNoSchedule,
+						Operator: v1.TolerationOpExists,
+					},
+				},
+
 				Containers: []v1.Container{
 					{
 						Name:    "busybox",
 						Image:   "busybox:1.35",
-						Command: []string{"sleep", "3600"},
+						Command: []string{"sh", "-c", "while true; do sleep 3600; done"},
 					},
 				},
 				RestartPolicy: v1.RestartPolicyNever,

@@ -99,7 +99,7 @@ func CheckCNIStatus(ctx context.Context, c client.Client, workloadClusterRestCon
 			// fmt.Println(err, " Error err error")
 			// If exec timed out, treat as healthy
 			if strings.Contains(err.Error(), "exec failed: context deadline exceeded") {
-				fmt.Printf("DEBUG: exec timeout for pod %s/%s, treating CNI as ready\n", src.Namespace, src.Name)
+				// fmt.Printf("DEBUG: exec timeout for pod %s/%s, treating CNI as ready\n", src.Namespace, src.Name)
 				return CNIReady, nil
 			}
 			return CNINotReady, fmt.Errorf("network probe failed from pod %s/%s to pod %s/%s: %w",
@@ -184,24 +184,24 @@ func sampleAppPods(ctx context.Context, c client.Client, limit int) ([]v1.Pod, e
 			}
 		}
 	}
-	fmt.Printf("DEBUG: Found %d application pods\n", len(pods))
-	for _, pod := range pods {
-		fmt.Printf("DEBUG: Application pod: %s/%s\n", pod.Namespace, pod.Name)
-	}
+	// fmt.Printf("DEBUG: Found %d application pods\n", len(pods))
+	// for _, pod := range pods {
+	// 	fmt.Printf("DEBUG: Application pod: %s/%s\n", pod.Namespace, pod.Name)
+	// }
 	return pods, nil
 }
 
-// probePodNetwork execs a lightweight ping inside the pod
+// probePodNetwork runs a simple ping test from the given pod to each target.
+// It differentiates between exec timeout, ping failure, and success.
 func probePodNetwork(ctx context.Context, restConfig *rest.Config, pod *v1.Pod, targets []string) error {
 	clientset, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create kubernetes clientset: %w", err)
 	}
 
-	// fmt.Printf("DEBUG: probing %s/%s, %d targets\n", pod.Namespace, pod.Name, len(targets))
-
 	for _, target := range targets {
-		cmd := []string{"ping", "-c", "2", "-W", "2", target}
+		cmd := []string{"ping", "-c", "1", "-W", "1", target}
+		// fmt.Printf("DEBUG: probing pod %s/%s -> %s\n", pod.Namespace, pod.Name, target)
 
 		req := clientset.CoreV1().RESTClient().Post().
 			Resource("pods").
@@ -211,7 +211,6 @@ func probePodNetwork(ctx context.Context, restConfig *rest.Config, pod *v1.Pod, 
 			VersionedParams(&v1.PodExecOptions{
 				Command:   cmd,
 				Container: pod.Spec.Containers[0].Name,
-				Stdin:     false,
 				Stdout:    true,
 				Stderr:    true,
 				TTY:       false,
@@ -228,20 +227,48 @@ func probePodNetwork(ctx context.Context, restConfig *rest.Config, pod *v1.Pod, 
 			Stderr: &stderr,
 		}
 
-		if err := exec.StreamWithContext(ctx, streamOpts); err != nil {
-			return fmt.Errorf("exec failed: %w, stderr: %s", err, stderr.String())
+		// 10s total timeout for this single ping (includes SPDY setup)
+		execCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		err = exec.StreamWithContext(execCtx, streamOpts)
+
+		// ---- Distinguish outcomes ----
+		switch {
+		// 1. Context deadline (SPDY or slow API)
+		case errors.Is(execCtx.Err(), context.DeadlineExceeded):
+			// fmt.Printf("DEBUG: exec timeout for pod %s/%s to target %s (context deadline)\n",
+			// 	pod.Namespace, pod.Name, target)
+			continue
+
+		// 2. Ping exit code 1 → network unreachable
+		case err != nil && strings.Contains(err.Error(), "exit code 1"):
+			// fmt.Printf("DEBUG: ping unreachable %s -> %s (exit code 1)\n", pod.Name, target)
+			// fmt.Printf("DEBUG: stderr: %s\n", stderr.String())
+			continue
+
+		// 3. Other exec errors (SPDY, container issues, etc.)
+		case err != nil:
+			// fmt.Printf("DEBUG: exec failed for pod %s/%s to target %s: %v\nstderr: %s\n",
+			// 	pod.Namespace, pod.Name, target, err, stderr.String())
+			continue
 		}
 
-		// fmt.Printf("DEBUG: probe output: %s\n", stdout.String())
+		// 4. Exec succeeded → check ping output
+		out := stdout.String()
+		// fmt.Printf("DEBUG: probe output for %s -> %s:\n%s\n", pod.Name, target, out)
 
-		// BusyBox ping check: "X packets transmitted, X packets received"
-		if strings.Contains(stdout.String(), "1 packets received") ||
-			strings.Contains(stdout.String(), "2 packets received") {
-			return nil // success
+		if strings.Contains(out, "1 packets received") ||
+			strings.Contains(out, "1 received") ||
+			strings.Contains(out, ", 0% packet loss") {
+			// fmt.Printf("DEBUG: ping success %s -> %s\n", pod.Name, target)
+			return nil
 		}
+
+		// fmt.Printf("DEBUG: ping completed but no packets received %s -> %s\n", pod.Name, target)
 	}
 
-	return fmt.Errorf("all network probes failed")
+	return fmt.Errorf("all network probes failed for pod %s/%s", pod.Namespace, pod.Name)
 }
 
 // isNetworkOrTimeoutError detects API reachability issues
