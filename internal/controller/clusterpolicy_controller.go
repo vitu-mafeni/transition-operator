@@ -621,46 +621,49 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 	req ctrl.Request,
 	log logr.Logger,
 ) {
-	// if clusterPolicy.Spec.SelectMode == transitionv1.SelectSpecific {
-	// 	log.Info("Applying transition policy to specific pods on node", "node", node.Name)
-
-	processed := make(map[string]struct{}) // To avoid duplicate transitions
+	var (
+		processed = make(map[string]struct{}) // To avoid duplicate transitions
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		sem       = make(chan struct{}, 4) // limit concurrency to 4 routines
+	)
 
 	for _, pod := range podList.Items {
 		namespace := pod.Namespace
 		workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
 		workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
 
-		var annotations map[string]string
-
-		// --- Step 1: Pod-level annotations ---
 		if !hasOwner {
-			// If no owner, skip to avoid pod-level checkpoint creation
 			log.Info("Pod has no owner; skipping pod-level checkpoint creation", "pod", pod.Name)
 			continue
-			// If you want to enable pod-level checkpoint creation, uncomment the following line
-			// annotations = pod.Annotations
-
 		}
 
-		// --- Step 2: Parent workload annotations ---
-		parentObject := &metav1.PartialObjectMetadata{}
-		if hasOwner {
-			parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
-			if err != nil {
-				log.Error(fmt.Errorf("an error occured finding object parent"), err.Error())
-			}
-			if parentAnnotations != nil {
-				annotations = parentAnnotations.Annotations
-				parentObject.Kind = parentKind
-				parentObject.Name = parentAnnotations.Name
-				parentObject.Namespace = parentAnnotations.Namespace
-			}
-		}
-
-		if annotations == nil {
+		parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, clusterClient, workloadKind, workloadName, namespace)
+		if err != nil {
+			log.Error(err, "Failed to retrieve parent annotations", "workload", workloadName, "kind", workloadKind)
 			continue
 		}
+		if parentAnnotations == nil {
+			continue
+		}
+
+		annotations := parentAnnotations.Annotations
+
+		// --- Properly structured parent object ---
+		parentObject := &metav1.PartialObjectMetadata{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       parentKind,
+				APIVersion: "apps/v1", // or dynamic if known from parentKind
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        parentAnnotations.Name,
+				Namespace:   parentAnnotations.Namespace,
+				Annotations: parentAnnotations.Annotations,
+			},
+		}
+
+		// Even if not used later, reference it logically to avoid unused var
+		log.V(5).Info("Resolved parent object", "kind", parentObject.Kind, "name", parentObject.Name)
 
 		for _, transitionPackage := range clusterPolicy.Spec.PackageSelectors {
 			if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
@@ -671,30 +674,39 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 					continue
 				}
 
-				// Deduplicate by workload and package
 				key := fmt.Sprintf("%s/%s", workloadID, transitionPackage.Name)
+
+				mu.Lock()
 				if _, seen := processed[key]; seen {
+					mu.Unlock()
 					continue
 				}
 				processed[key] = struct{}{}
+				mu.Unlock()
 
-				// log.Info("Matched workload for transition", "workload", workloadID, "package", transitionPackage.Name, "pod", pod.Name)
-				if transitionPackage.LiveStatePackage {
-					log.Info("Handling Live package", "package", transitionPackage.Name, "pod", pod.Name)
-					r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-				} else {
-					r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, transitionPackage, clusterPolicy, req)
-				}
+				wg.Add(1)
+				sem <- struct{}{} // Acquire concurrency slot
 
+				go func(pod corev1.Pod, pkg transitionv1.PackageSelector, parentObj *metav1.PartialObjectMetadata) {
+					defer wg.Done()
+					defer func() { <-sem }() // Release slot
+
+					if pkg.LiveStatePackage {
+						log.Info("Handling live-state package", "package", pkg.Name, "pod", pod.Name)
+						r.TransitionSelectedLiveWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
+					} else {
+						log.Info("Handling non-live package", "package", pkg.Name, "pod", pod.Name)
+						r.TransitionSelectedWorkloads(ctx, clusterClient, &pod, pkg, clusterPolicy, req)
+					}
+
+					// Future use example:
+					// r.RecordParentReference(ctx, clusterClient, parentObj)
+				}(pod, transitionPackage, parentObject)
 			}
 		}
 	}
 
-	// } else if clusterPolicy.Spec.SelectMode == transitionv1.SelectAll {
-	// 	r.TransitionAllWorkloads(ctx, clusterClient, clusterPolicy, req)
-	// } else {
-	// 	log.Info("Invalid or unspecified select mode; skipping policy application")
-	// }
+	wg.Wait()
 }
 
 func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(
@@ -875,7 +887,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(
 			msg += "; ArgoCD sync not triggered successfully"
 		}
 
-		r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, fmt.Errorf(msg), transitionv1.PackageTransitionConditionCompleted)
+		r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, fmt.Errorf("%s", msg), transitionv1.PackageTransitionConditionCompleted)
 		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "duration", time.Since(start))
 
 	// ─────────────────────────────
@@ -900,7 +912,7 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(
 			msg += "; ArgoCD sync not triggered successfully"
 		}
 
-		r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, fmt.Errorf(msg), transitionv1.PackageTransitionConditionCompleted)
+		r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, fmt.Errorf("%s", msg), transitionv1.PackageTransitionConditionCompleted)
 		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "duration", time.Since(start))
 
 	default:
