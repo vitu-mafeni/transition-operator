@@ -31,47 +31,57 @@ func TriggerTransitionOnMissedNodeHealth(
 	workloadClusterName string,
 ) error {
 	log := logf.FromContext(ctx)
-	// --- List existing checkpoints ---
+
 	checkpoints := &transitionv1.CheckpointList{}
 	if err := mgmtClient.List(ctx, checkpoints, &client.ListOptions{}); err != nil {
 		log.Error(err, "Failed to list checkpoints")
 		return err
 	}
 
-	processed := make(map[string]struct{}) // Deduplication
+	processed := make(map[string]struct{}) // deduplication
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 2) // limit concurrency to 2 transitions
 
-	// --- Trigger transition on existing checkpoints for this package ---
 	for _, checkpoint := range checkpoints.Items {
 		annotations := checkpoint.Spec.ResourceRef.Annotations
-		if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] == "true" &&
-			annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
-
-			if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
-				log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", checkpoint.Spec.PodRef.Name)
-				continue
-			}
-
-			key := fmt.Sprintf("%s/%s", checkpoint.Spec.PodRef.Name, pkg.Name)
-			if _, seen := processed[key]; seen {
-				continue
-			}
-			processed[key] = struct{}{}
-
-			TransitionOnMissedNodeHealth(ctx, mgmtClient, checkpoint.Spec.PodRef.Name, pkg, clusterPolicy, checkpoint.Spec.ClusterRef.Name)
+		if annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] != "true" ||
+			annotations["transition.dcnlab.ssu.ac.kr/packageName"] != pkg.Name {
+			continue
 		}
+
+		if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
+			log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", checkpoint.Spec.PodRef.Name)
+			continue
+		}
+
+		key := fmt.Sprintf("%s/%s", checkpoint.Spec.PodRef.Name, pkg.Name)
+		if _, seen := processed[key]; seen {
+			continue
+		}
+		processed[key] = struct{}{}
+
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(cp transitionv1.Checkpoint) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			TransitionOnMissedNodeHealth(ctx, mgmtClient, cp.Spec.PodRef.Name, pkg, clusterPolicy, cp.Spec.ClusterRef.Name)
+		}(checkpoint)
 	}
 
+	wg.Wait()
+
 	// --- If no checkpoints exist for this package, create new ones from pods ---
-	packageCheckpointsExist := false
-	for _, checkpoint := range checkpoints.Items {
-		if checkpoint.Spec.ResourceRef.Annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
-			packageCheckpointsExist = true
+	hasCheckpoint := false
+	for _, c := range checkpoints.Items {
+		if c.Spec.ResourceRef.Annotations["transition.dcnlab.ssu.ac.kr/packageName"] == pkg.Name {
+			hasCheckpoint = true
 			break
 		}
 	}
 
-	if !packageCheckpointsExist {
-		// Get workload cluster client
+	if !hasCheckpoint {
+		// get workload cluster client
 		_, workloadClusterClient, _, err := capi.GetWorkloadClusterClient(ctx, mgmtClient, workloadClusterName)
 		if err != nil {
 			return err
@@ -81,7 +91,6 @@ func TriggerTransitionOnMissedNodeHealth(
 			return fmt.Errorf("workload cluster %q client not available yet", workloadClusterName)
 		}
 
-		// List all pods
 		podList := &corev1.PodList{}
 		if err := workloadClusterClient.List(ctx, podList, &client.ListOptions{}); err != nil {
 			log.Error(err, "Failed to list pods in workload cluster", "cluster", workloadClusterName)
@@ -94,43 +103,40 @@ func TriggerTransitionOnMissedNodeHealth(
 			namespace := pod.Namespace
 			workloadKind, workloadName, hasOwner := helpers.GetWorkloadOwnerControllerInfo(pod)
 			if !hasOwner {
-				log.Info("Pod has no owner; skipping", "pod", pod.Name)
 				continue
 			}
 
-			workloadID := fmt.Sprintf("%s/%s/%s", namespace, workloadName, workloadKind)
-
-			parentObject := &metav1.PartialObjectMetadata{}
 			parentAnnotations, parentKind, err := helpers.GetParentAnnotations(ctx, workloadClusterClient, workloadKind, workloadName, namespace)
 			if err != nil {
-				log.Error(fmt.Errorf("error getting parent annotations"), err.Error())
+				log.Error(err, "Error getting parent annotations")
 				continue
 			}
 
-			if parentAnnotations != nil {
-				parentObject.Kind = parentKind
-				parentObject.Name = parentAnnotations.Name
-				parentObject.Namespace = parentAnnotations.Namespace
-				parentObject.Annotations = parentAnnotations.Annotations
-			} else {
-				continue
-			}
-
-			if parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/cluster-policy"] != "true" ||
+			if parentAnnotations == nil ||
 				parentAnnotations.Annotations["transition.dcnlab.ssu.ac.kr/packageName"] != pkg.Name {
 				continue
 			}
 
 			if helpers.IsPackageTransitioned(clusterPolicy, pkg) {
-				log.Info("Package already transitioned; skipping", "package", pkg.Name, "pod", pod.Name)
 				continue
 			}
 
-			key := fmt.Sprintf("%s/%s", workloadID, pkg.Name)
+			key := fmt.Sprintf("%s/%s/%s", namespace, workloadName, pkg.Name)
 			if _, seen := processedPods[key]; seen {
 				continue
 			}
 			processedPods[key] = struct{}{}
+
+			parentObject := &metav1.PartialObjectMetadata{
+				TypeMeta: metav1.TypeMeta{
+					Kind: parentKind,
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        parentAnnotations.Name,
+					Namespace:   parentAnnotations.Namespace,
+					Annotations: parentAnnotations.Annotations,
+				},
+			}
 
 			if err := CreateCheckpointCR(ctx, mgmtClient, &pod, pkg, clusterPolicy, parentObject); err != nil {
 				log.Error(err, "Failed to create Checkpoint CR for pod", "pod", pod.Name, "package", pkg.Name)
@@ -140,7 +146,6 @@ func TriggerTransitionOnMissedNodeHealth(
 	}
 
 	return nil
-
 }
 
 func TransitionOnMissedNodeHealth(
@@ -311,7 +316,7 @@ func TransitionOnMissedNodeHealth(
 			message += "; ArgoCD sync failed"
 		}
 
-		UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, fmt.Errorf(message), transitionv1.PackageTransitionConditionCompleted)
+		UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, fmt.Errorf("%s", message), transitionv1.PackageTransitionConditionCompleted)
 		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "policy", clusterPolicy.Name)
 
 	case transitionv1.PackageTypeStateless:
@@ -329,7 +334,7 @@ func TransitionOnMissedNodeHealth(
 			message += "; ArgoCD sync failed"
 		}
 
-		UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, fmt.Errorf(message), transitionv1.PackageTransitionConditionCompleted)
+		UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, fmt.Errorf("%s", message), transitionv1.PackageTransitionConditionCompleted)
 		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "policy", clusterPolicy.Name)
 
 	default:
