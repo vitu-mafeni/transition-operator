@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	argov1alpha1 "github.com/argoproj/argo-cd/v2/pkg/apis/application/v1alpha1"
@@ -40,6 +42,8 @@ type MatchingNadFiles struct {
 }
 
 // CheckRepoForMatchingManifests clones a repo and searches YAML files for a name/namespace match.
+// CheckRepoForMatchingManifests clones a Git repo and scans it for YAML manifests
+// matching a given ResourceRef. Uses concurrent workers for faster scanning.
 func CheckRepoForMatchingManifests(
 	ctx context.Context,
 	repoURL string,
@@ -48,14 +52,15 @@ func CheckRepoForMatchingManifests(
 ) (cloneDirectory string, matchingFiles []string, err error) {
 
 	log := logf.FromContext(ctx)
-	log.Info("url " + repoURL)
+	log.Info("Cloning repo", "url", repoURL, "branch", branch)
 
-	// clone into a temp dir
+	// Create temp directory
 	tmpDir, err := os.MkdirTemp("", "transition-manifests-*")
 	if err != nil {
 		return "", nil, err
 	}
 
+	// Clone repo shallowly
 	_, err = git.PlainCloneContext(ctx, tmpDir, false, &git.CloneOptions{
 		URL:           repoURL,
 		ReferenceName: gitplumbing.ReferenceName("refs/heads/" + branch),
@@ -66,80 +71,126 @@ func CheckRepoForMatchingManifests(
 		return "", nil, fmt.Errorf("git clone failed: %w", err)
 	}
 
-	var matches []string
+	// Channels for work and results
+	fileCh := make(chan string, 100)
+	matchCh := make(chan string, 100)
+	errCh := make(chan error, 1)
 
-	walkFn := func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if ext := strings.ToLower(filepath.Ext(path)); ext != ".yaml" && ext != ".yml" {
-			return nil
-		}
+	var wg sync.WaitGroup
+	workerCount := runtime.NumCPU()
 
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		// A file can contain multiple YAML documents separated by ---
-		dec := yaml.NewDecoder(bytes.NewReader(data))
-		for {
-			// Minimal struct with kind, name, namespace
-			var obj struct {
-				Kind     string `yaml:"kind"`
-				Metadata struct {
-					Name      string `yaml:"name"`
-					Namespace string `yaml:"namespace"`
-				} `yaml:"metadata"`
+	// Worker function
+	worker := func() {
+		defer wg.Done()
+		for path := range fileCh {
+			select {
+			case <-ctx.Done():
+				return
+			default:
 			}
 
-			if err := dec.Decode(&obj); err != nil {
-				if errors.Is(err, io.EOF) {
-					break
+			data, err := os.ReadFile(path)
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
 				}
-				return err
-			}
-			// namespace := ""
-			// if obj.Metadata.Namespace == "" {
-			// 	namespace = "default"
-			// }
-
-			// if obj.Kind == resourceRef.Kind &&
-			// 	obj.Metadata.Name == resourceRef.Name &&
-			// 	namespace == resourceRef.Namespace {
-
-			// 	matches = append(matches, path)
-			// 	// don't break; a file may have multiple matching docs
-			// }
-
-			objNs := obj.Metadata.Namespace
-			if objNs == "" {
-				objNs = "default"
-			}
-			refNs := resourceRef.Namespace
-			if refNs == "" {
-				refNs = "default"
+				return
 			}
 
-			if obj.Kind == resourceRef.Kind &&
-				obj.Metadata.Name == resourceRef.Name &&
-				objNs == refNs {
-				matches = append(matches, path)
-				// don't break; a file may have multiple matching docs
-			}
+			dec := yaml.NewDecoder(bytes.NewReader(data))
+			for {
+				var obj struct {
+					Kind     string `yaml:"kind"`
+					Metadata struct {
+						Name      string `yaml:"name"`
+						Namespace string `yaml:"namespace"`
+					} `yaml:"metadata"`
+				}
 
+				if err := dec.Decode(&obj); err != nil {
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					select {
+					case errCh <- err:
+					default:
+					}
+					return
+				}
+
+				objNs := obj.Metadata.Namespace
+				if objNs == "" {
+					objNs = "default"
+				}
+				refNs := resourceRef.Namespace
+				if refNs == "" {
+					refNs = "default"
+				}
+
+				if obj.Kind == resourceRef.Kind &&
+					obj.Metadata.Name == resourceRef.Name &&
+					objNs == refNs {
+					matchCh <- path
+					// don't break: one file may contain multiple matches
+				}
+			}
 		}
-		return nil
 	}
 
-	if err := filepath.WalkDir(tmpDir, walkFn); err != nil {
-		return "", nil, err
+	// Start workers
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go worker()
 	}
 
-	return tmpDir, matches, nil
+	// Walk directory and enqueue YAML files
+	go func() {
+		defer close(fileCh)
+		filepath.WalkDir(tmpDir, func(path string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				select {
+				case errCh <- walkErr:
+				default:
+				}
+				return walkErr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if ext := strings.ToLower(filepath.Ext(path)); ext == ".yaml" || ext == ".yml" {
+				fileCh <- path
+			}
+			return nil
+		})
+	}()
+
+	// Collect matches concurrently
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(matchCh)
+		close(done)
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return tmpDir, nil, ctx.Err()
+		case e := <-errCh:
+			if e != nil {
+				return tmpDir, nil, e
+			}
+		case path, ok := <-matchCh:
+			if !ok {
+				// done
+				return tmpDir, matchingFiles, nil
+			}
+			matchingFiles = append(matchingFiles, path)
+		case <-done:
+			return tmpDir, matchingFiles, nil
+		}
+	}
 }
 
 // FindMatchingNADs walks a directory tree and returns all files containing

@@ -3,6 +3,8 @@ package checkpointtransition
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"code.gitea.io/sdk/gitea"
 	"github.com/nephio-project/nephio/controllers/pkg/resource"
@@ -141,11 +143,17 @@ func TriggerTransitionOnMissedNodeHealth(
 
 }
 
-func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client, podName string, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, workloadClusterName string) {
+func TransitionOnMissedNodeHealth(
+	ctx context.Context,
+	mgmtClient client.Client,
+	podName string,
+	transitionPackage transitionv1.PackageSelector,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	workloadClusterName string,
+) {
 	log := logf.FromContext(ctx)
-	// log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
-
 	apiClient := resource.NewAPIPatchingApplicator(mgmtClient)
+
 	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
 	if err != nil {
 		log.Error(err, "Failed to initialize Gitea client")
@@ -161,7 +169,6 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 		log.Error(err, "Failed to get Gitea user info", "response", resp)
 		return
 	}
-	// log.Info("Authenticated with Gitea", "username", user.UserName)
 
 	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
 	if sourceRepo == "" {
@@ -187,13 +194,9 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 		}
 	}
 	if drRepo == nil {
-		log.Info("Repository named 'dr' not found; using last repository as fallback, skipping transition", clusterPolicy.Name)
-		// drRepo = repos[len(repos)-1]
+		log.Info("Repository named 'dr' not found; skipping transition", clusterPolicy.Name)
 		return
 	}
-
-	helpers.LogRepositories(log, repos)
-	// log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
 
 	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
@@ -206,23 +209,18 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 		log.Error(err, "Failed to get target workload cluster client", "cluster", targetClusterName)
 		return
 	}
-	associatedCheckpoint := transitionv1.Checkpoint{}
+
+	var associatedCheckpoint transitionv1.Checkpoint
 
 	switch transitionPackage.PackageType {
 	case transitionv1.PackageTypeStateful:
-		// log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
-
-		backupMatching := transitionv1.BackupInformation{}
+		var backupMatching transitionv1.BackupInformation
 
 		for _, backup := range transitionPackage.BackupInformation {
-			switch backup.BackupType {
-			case transitionv1.BackupTypeSchedule:
-
+			if backup.BackupType == transitionv1.BackupTypeSchedule {
 				checkpointName := fmt.Sprintf("checkpoint-%s-%s-%s", clusterPolicy.Name, podName, transitionPackage.Name)
-				//get checkpoint
 				checkpoint := &transitionv1.Checkpoint{}
-				err := mgmtClient.Get(ctx, types.NamespacedName{Name: checkpointName, Namespace: "default"}, checkpoint)
-				if err != nil {
+				if err := mgmtClient.Get(ctx, types.NamespacedName{Name: checkpointName, Namespace: "default"}, checkpoint); err != nil {
 					log.Error(err, "Failed to get checkpoint", "name", checkpointName)
 					return
 				}
@@ -230,142 +228,141 @@ func TransitionOnMissedNodeHealth(ctx context.Context, mgmtClient client.Client,
 					log.Info("Checkpoint has no associated backup; cannot proceed with live state transition", "checkpoint", checkpointName)
 					return
 				}
-
 				associatedCheckpoint = *checkpoint
-
-			case transitionv1.BackupTypeManual:
-				// scheme := runtime.NewScheme()
-				// _ = velero.AddToScheme(scheme)
-				log.Info("Looking for stateful live manual backup - nothing yet", "name", backup.Name)
-
 			}
 		}
 
 		if associatedCheckpoint.Name == "" {
-			log.Error(err, "Failed to find a proper associated live backup - backup name cannot be empty")
+			log.Error(err, "Failed to find associated live backup - backup name cannot be empty")
 			return
 		}
 
 		tmpDir, matches, err := giteaclient.CheckRepoForMatchingManifests(ctx, sourceRepo, "main", &associatedCheckpoint.Spec.ResourceRef)
-
 		if err != nil {
 			log.Error(err, "Failed to find matching manifests in source repo", "repo", sourceRepo)
 			return
 		}
 
-		if len(matches) > 0 {
-			log.Info("Found matching manifests",
-				"repo", sourceRepo,
-				"tmpDir", tmpDir,
-				"files", matches)
-
-			for _, f := range matches {
-				// fullPath := filepath.Join(tmpDir, f)
-				if err := giteaclient.UpdateResourceContainers(f, associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage); err != nil {
-					log.Error(err, "failed to update containers in manifest", "file", f)
-					return
-				}
-				log.Info("Updated containers in manifest", "file", f)
-			}
-
-			// commit & push changes back to Gitea
-			// log.Info("will commit and push changes back to git here")
-			commitMsg := fmt.Sprintf("Update container image %s/%s", associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage)
-
-			username, password, _, err := giteaclient.GetGiteaSecretUserNamePassword(ctx, mgmtClient)
-			if err != nil {
-				log.Error(err, "failed to get gitea")
-			}
-
-			if err := giteaclient.CommitAndPush(ctx, tmpDir, "main", sourceRepo, username, password, commitMsg); err != nil {
-				log.Error(err, "failed to commit & push changes")
-			}
-
-			// log.Info("Changes committed and pushed", "repo", sourceRepo)
-
-			_, err = helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, mgmtClient, targetClusterName+"-dr")
-			if err != nil {
-				log.Error(err, "Failed to push live workloads pod manifest")
-				//add status that it failed to transition the package
-				clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-					PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-					LastTransitionTime:         metav1.Now(),
-					PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
-					PackageTransitionMessage:   err.Error(),
-				})
-
-				if err := mgmtClient.Status().Update(ctx, clusterPolicy); err != nil {
-					log.Error(err, "Failed to update ClusterPolicy status after transition failure")
-					return
-				}
-				return
-			}
-
-			message := "Transitioned stateful package successfully"
-
-			err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
-			if err != nil {
-				log.Error(err, "Failed to trigger ArgoCD sync with kube client")
-				message += "; but the ArgoCD sync was not triggered successfully"
-			}
-			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-				LastTransitionTime:         metav1.Now(),
-				PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
-				PackageTransitionMessage:   message,
-			})
-
-			if err := mgmtClient.Status().Update(ctx, clusterPolicy); err != nil {
-				log.Error(err, "Failed to update ClusterPolicy status after successful stateful transition")
-				return
-			}
-			log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
+		if len(matches) == 0 {
+			log.Info("No matching manifests found", "repo", sourceRepo)
 			return
 		}
+
+		log.Info("Found matching manifests", "count", len(matches), "repo", sourceRepo)
+
+		// Parallelize manifest updates (limit concurrency to avoid CPU exhaustion)
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 2) // Limit to 2 concurrent file operations (good for 2 vCPUs)
+		errChan := make(chan error, len(matches))
+
+		for _, f := range matches {
+			wg.Add(1)
+			go func(file string) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				if err := giteaclient.UpdateResourceContainers(file,
+					associatedCheckpoint.Status.LastCheckpointImage,
+					associatedCheckpoint.Status.OriginalImage); err != nil {
+					errChan <- fmt.Errorf("failed to update manifest %s: %w", file, err)
+				}
+			}(f)
+		}
+		wg.Wait()
+		close(errChan)
+
+		for e := range errChan {
+			if e != nil {
+				log.Error(e, "Manifest update error")
+				return
+			}
+		}
+
+		// Commit & push changes
+		username, password, _, err := giteaclient.GetGiteaSecretUserNamePassword(ctx, mgmtClient)
+		if err != nil {
+			log.Error(err, "Failed to get Gitea credentials")
+			return
+		}
+
+		commitMsg := fmt.Sprintf("Update container image %s/%s",
+			associatedCheckpoint.Status.LastCheckpointImage,
+			associatedCheckpoint.Status.OriginalImage)
+
+		if err := giteaclient.CommitAndPush(ctx, tmpDir, "main", sourceRepo, username, password, commitMsg); err != nil {
+			log.Error(err, "Failed to commit & push changes")
+			return
+		}
+
+		_, err = helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(),
+			user.UserName, drRepo.Name, targetRepoName, clusterPolicy,
+			transitionPackage, log, backupMatching, associatedCheckpoint,
+			mgmtClient, targetClusterName+"-dr")
+		if err != nil {
+			log.Error(err, "Failed to push live workload pod manifest")
+			UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, err, transitionv1.PackageTransitionConditionFailed)
+			return
+		}
+
+		message := "Transitioned stateful package successfully"
+		if err := helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd"); err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync")
+			message += "; ArgoCD sync failed"
+		}
+
+		UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, fmt.Errorf(message), transitionv1.PackageTransitionConditionCompleted)
+		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "policy", clusterPolicy.Name)
+
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
 		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
-		_, err := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
-		if err != nil {
+		if _, err := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log); err != nil {
 			log.Error(err, "Failed to push ArgoCD app manifest")
-			//add status that it failed to transition the package
-			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-				LastTransitionTime:         metav1.Now(),
-				PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
-				PackageTransitionMessage:   err.Error(),
-			})
-
-			if err := mgmtClient.Status().Update(ctx, clusterPolicy); err != nil {
-				log.Error(err, "Failed to update ClusterPolicy status after transition failure")
-				return
-			}
+			UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, err, transitionv1.PackageTransitionConditionFailed)
 			return
 		}
 
 		message := "Transitioned stateless package successfully"
-
-		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
-		if err != nil {
-			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
-			message += "; but the ArgoCD sync was not triggered successfully"
+		if err := helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd"); err != nil {
+			log.Error(err, "Failed to trigger ArgoCD sync")
+			message += "; ArgoCD sync failed"
 		}
-		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-			LastTransitionTime:         metav1.Now(),
-			PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
-			PackageTransitionMessage:   message,
-		})
 
-		if err := mgmtClient.Status().Update(ctx, clusterPolicy); err != nil {
-			log.Error(err, "Failed to update ClusterPolicy status after successful transition")
-			return
-		}
-		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
-		return
+		UpdateClusterPolicyStatus(ctx, mgmtClient, clusterPolicy, transitionPackage, fmt.Errorf(message), transitionv1.PackageTransitionConditionCompleted)
+		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "policy", clusterPolicy.Name)
 
 	default:
 		log.Info("Unknown package type; skipping transition", "package", transitionPackage.Name)
 	}
+}
 
+// UpdateClusterPolicyStatus updates ClusterPolicy transition status cleanly.
+func UpdateClusterPolicyStatus(
+	ctx context.Context,
+	mgmtClient client.Client,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	transitionPackage transitionv1.PackageSelector,
+	updateErr error,
+	condition transitionv1.PackageTransitionCondition,
+) {
+	message := ""
+	if updateErr != nil {
+		message = updateErr.Error()
+	}
+
+	clusterPolicy.Status.TransitionedPackages = append(
+		clusterPolicy.Status.TransitionedPackages,
+		transitionv1.TransitionedPackages{
+			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
+			LastTransitionTime:         metav1.NewTime(time.Now()),
+			PackageTransitionCondition: condition,
+			PackageTransitionMessage:   message,
+		},
+	)
+
+	if err := mgmtClient.Status().Update(ctx, clusterPolicy); err != nil {
+		// Ideally, log the error but don't panic.
+		// Logging should be done at caller site to include context.
+	}
 }

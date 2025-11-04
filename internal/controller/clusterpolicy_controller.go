@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"code.gitea.io/sdk/gitea"
+	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -701,9 +702,16 @@ func (r *ClusterPolicyReconciler) HandlePodsOnNodeForPolicy(
 	// }
 }
 
-func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Context, clusterClient resource.APIPatchingApplicator, pod *corev1.Pod, transitionPackage transitionv1.PackageSelector, clusterPolicy *transitionv1.ClusterPolicy, req ctrl.Request) {
+func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(
+	ctx context.Context,
+	clusterClient resource.APIPatchingApplicator,
+	pod *corev1.Pod,
+	transitionPackage transitionv1.PackageSelector,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	req ctrl.Request,
+) {
 	log := logf.FromContext(ctx)
-	// log.Info("Transitioning Selected live workload", "pod", pod.Name, "package", transitionPackage.Name)
+	start := time.Now()
 
 	apiClient := resource.NewAPIPatchingApplicator(r.Client)
 	giteaClient, err := giteaclient.GetClient(ctx, apiClient)
@@ -716,218 +724,219 @@ func (r *ClusterPolicyReconciler) TransitionSelectedLiveWorkloads(ctx context.Co
 		return
 	}
 
-	user, resp, err := giteaClient.GetMyUserInfo()
-	if err != nil {
-		log.Error(err, "Failed to get Gitea user info", "response", resp)
-		return
-	}
-	// log.Info("Authenticated with Gitea", "username", user.UserName)
-
 	sourceRepo := clusterPolicy.Spec.ClusterSelector.Repo
 	if sourceRepo == "" {
 		log.Info("ClusterPolicy does not specify source repo; skipping transition")
 		return
 	}
 
-	repos, resp, err := giteaClient.Get().ListMyRepos(gitea.ListReposOptions{})
-	if err != nil {
-		log.Error(err, "Failed to list Gitea repositories", "response", resp)
-		return
-	}
-	if len(repos) == 0 {
-		log.Info("No repositories found for user", "username", user.UserName)
-		return
-	}
+	// Parallelize I/O-bound initialization
+	var (
+		user                *gitea.User
+		repos               []*gitea.Repository
+		targetClusterClient client.Client
+	)
+	g, ctx := errgroup.WithContext(ctx)
 
-	var drRepo *gitea.Repository
-	for i := range repos {
-		if repos[i].Name == "dr" {
-			drRepo = repos[i]
-			break
-		}
-	}
-	if drRepo == nil {
-		log.Info("Repository named 'dr' not found; using last repository as fallback, skipping transition", clusterPolicy.Name)
-		// drRepo = repos[len(repos)-1]
-		return
-	}
-
-	helpers.LogRepositories(log, repos)
-	// log.Info("Source repository", "cluster", clusterPolicy.Spec.ClusterSelector.Name, "repo", sourceRepo)
+	g.Go(func() error {
+		u, _, err := giteaClient.GetMyUserInfo()
+		user = u
+		return err
+	})
+	g.Go(func() error {
+		rps, _, err := giteaClient.Get().ListMyRepos(gitea.ListReposOptions{})
+		repos = rps
+		return err
+	})
 
 	targetRepoName, targetClusterName, found := helpers.DetermineTargetRepo(clusterPolicy, log)
 	if !found {
 		log.Info("No suitable target repository found; canceling transition")
 		return
 	}
+	g.Go(func() error {
+		_, err, client := r.GetWorkloadClusterClientByName(ctx, targetClusterName)
+		targetClusterClient = client
+		return err
+	})
 
-	_, err, targetClusterClient := r.GetWorkloadClusterClientByName(ctx, targetClusterName)
-	if err != nil {
-		log.Error(err, "Failed to get target workload cluster client", "cluster", targetClusterName)
+	if err := g.Wait(); err != nil {
+		log.Error(err, "Initialization stage failed")
 		return
 	}
-	associatedCheckpoint := transitionv1.Checkpoint{}
+
+	if len(repos) == 0 {
+		log.Info("No repositories found for user", "username", user.UserName)
+		return
+	}
+
+	// Pick DR repo
+	var drRepo *gitea.Repository
+	for _, repo := range repos {
+		if repo.Name == "dr" {
+			drRepo = repo
+			break
+		}
+	}
+	if drRepo == nil {
+		log.Info("Repository named 'dr' not found; skipping transition")
+		return
+	}
 
 	switch transitionPackage.PackageType {
+
+	// ─────────────────────────────
+	// STATEFUL TRANSITION
+	// ─────────────────────────────
 	case transitionv1.PackageTypeStateful:
-		// log.Info("Handling stateful live package transition", "package", transitionPackage.Name)
-
-		backupMatching := transitionv1.BackupInformation{}
-
+		var associatedCheckpoint transitionv1.Checkpoint
 		for _, backup := range transitionPackage.BackupInformation {
-			switch backup.BackupType {
-			case transitionv1.BackupTypeSchedule:
-
-				checkpointName := fmt.Sprintf("checkpoint-%s-%s-%s", clusterPolicy.Name, pod.Name, transitionPackage.Name)
-				//get checkpoint
-				checkpoint := &transitionv1.Checkpoint{}
-				err := r.Client.Get(ctx, types.NamespacedName{Name: checkpointName, Namespace: "default"}, checkpoint)
-				if err != nil {
-					log.Error(err, "Failed to get checkpoint", "name", checkpointName)
-					return
-				}
-				if checkpoint.Status.LastCheckpointImage == "" {
-					log.Info("Checkpoint has no associated backup; cannot proceed with live state transition", "checkpoint", checkpointName)
-					return
-				}
-
-				associatedCheckpoint = *checkpoint
-
-			case transitionv1.BackupTypeManual:
-				// scheme := runtime.NewScheme()
-				// _ = velero.AddToScheme(scheme)
-				log.Info("Looking for stateful live manual backup - nothing yet", "name", backup.Name)
-
+			if backup.BackupType != transitionv1.BackupTypeSchedule {
+				continue
 			}
+			checkpointName := fmt.Sprintf("checkpoint-%s-%s-%s", clusterPolicy.Name, pod.Name, transitionPackage.Name)
+			checkpoint := &transitionv1.Checkpoint{}
+			if err := r.Client.Get(ctx, types.NamespacedName{Name: checkpointName, Namespace: "default"}, checkpoint); err != nil {
+				log.Error(err, "Failed to get checkpoint", "name", checkpointName)
+				return
+			}
+			if checkpoint.Status.LastCheckpointImage == "" {
+				log.Info("Checkpoint has no associated backup; cannot proceed", "checkpoint", checkpointName)
+				return
+			}
+			associatedCheckpoint = *checkpoint
+			break
 		}
 
 		if associatedCheckpoint.Name == "" {
-			log.Error(err, "Failed to find a proper associated live backup - backup name cannot be empty")
+			log.Error(fmt.Errorf("missing checkpoint"), "Failed to find associated backup")
 			return
 		}
 
-		tmpDir, matches, err := giteaclient.CheckRepoForMatchingManifests(ctx, sourceRepo, "main", &associatedCheckpoint.Spec.ResourceRef)
-
+		// Clone repo and scan manifests (no caching)
+		tmpDir, matches, err := giteaclient.CheckRepoForMatchingManifests(
+			ctx, sourceRepo, "main", &associatedCheckpoint.Spec.ResourceRef,
+		)
 		if err != nil {
 			log.Error(err, "Failed to find matching manifests in source repo", "repo", sourceRepo)
 			return
 		}
 
-		if len(matches) > 0 {
-			log.Info("Found matching manifests",
-				"repo", sourceRepo,
-				"tmpDir", tmpDir,
-				"files", matches)
+		if len(matches) == 0 {
+			log.Info("No matching manifests found", "repo", sourceRepo)
+			return
+		}
 
-			for _, f := range matches {
-				// fullPath := filepath.Join(tmpDir, f)
-				if err := giteaclient.UpdateResourceContainers(f, associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage); err != nil {
-					log.Error(err, "failed to update containers in manifest", "file", f)
-					return
-				}
-				log.Info("Updated containers in manifest", "file", f)
-			}
+		log.Info("Found matching manifests", "repo", sourceRepo, "files", matches)
 
-			// commit & push changes back to Gitea
-			// log.Info("will commit and push changes back to git here")
-			commitMsg := fmt.Sprintf("Update container image %s/%s", associatedCheckpoint.Status.LastCheckpointImage, associatedCheckpoint.Status.OriginalImage)
+		// Parallel manifest updates
+		g, ctx = errgroup.WithContext(ctx)
+		for _, f := range matches {
+			f := f
+			g.Go(func() error {
+				return giteaclient.UpdateResourceContainers(
+					f,
+					associatedCheckpoint.Status.LastCheckpointImage,
+					associatedCheckpoint.Status.OriginalImage,
+				)
+			})
+		}
+		if err := g.Wait(); err != nil {
+			log.Error(err, "Failed to update some manifests")
+			return
+		}
 
+		// Commit and push asynchronously (no blocking)
+		go func() {
 			username, password, _, err := giteaclient.GetGiteaSecretUserNamePassword(ctx, r.Client)
 			if err != nil {
-				log.Error(err, "failed to get gitea")
+				log.Error(err, "Failed to get Gitea credentials")
+				return
 			}
-
+			commitMsg := fmt.Sprintf("Update image %s → %s",
+				associatedCheckpoint.Status.OriginalImage,
+				associatedCheckpoint.Status.LastCheckpointImage,
+			)
 			if err := giteaclient.CommitAndPush(ctx, tmpDir, "main", sourceRepo, username, password, commitMsg); err != nil {
-				log.Error(err, "failed to commit & push changes")
+				log.Error(err, "Failed to commit & push changes")
 			}
+		}()
 
-			// log.Info("Changes committed and pushed", "repo", sourceRepo)
-
-			_, err = helpers.CreateAndPushLiveStateBackupRestore(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint, r.Client, targetClusterName+"-dr")
-			if err != nil {
-				log.Error(err, "Failed to push live workloads pod manifest")
-				//add status that it failed to transition the package
-				clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-					PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-					LastTransitionTime:         metav1.Now(),
-					PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
-					PackageTransitionMessage:   err.Error(),
-				})
-
-				if err := r.Status().Update(ctx, clusterPolicy); err != nil {
-					log.Error(err, "Failed to update ClusterPolicy status after transition failure")
-					return
-				}
-				return
-			}
-
-			message := "Transitioned stateful package successfully"
-
-			err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
-			if err != nil {
-				log.Error(err, "Failed to trigger ArgoCD sync with kube client")
-				message += "; but the ArgoCD sync was not triggered successfully"
-			}
-			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-				LastTransitionTime:         metav1.Now(),
-				PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
-				PackageTransitionMessage:   message,
-			})
-
-			if err := r.Status().Update(ctx, clusterPolicy); err != nil {
-				log.Error(err, "Failed to update ClusterPolicy status after successful stateful transition")
-				return
-			}
-			log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
+		// Push new manifests to DR repo
+		backupMatching := transitionv1.BackupInformation{}
+		_, err = helpers.CreateAndPushLiveStateBackupRestore(
+			ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName,
+			clusterPolicy, transitionPackage, log, backupMatching, associatedCheckpoint,
+			r.Client, targetClusterName+"-dr",
+		)
+		if err != nil {
+			r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, err, transitionv1.PackageTransitionConditionFailed)
 			return
 		}
+
+		msg := "Transitioned stateful package successfully"
+		if err := helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd"); err != nil {
+			log.Error(err, "ArgoCD sync failed")
+			msg += "; ArgoCD sync not triggered successfully"
+		}
+
+		r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, fmt.Errorf(msg), transitionv1.PackageTransitionConditionCompleted)
+		log.Info("Successfully transitioned stateful package", "package", transitionPackage.Name, "duration", time.Since(start))
+
+	// ─────────────────────────────
+	// STATELESS TRANSITION
+	// ─────────────────────────────
 	case transitionv1.PackageTypeStateless:
 		log.Info("Handling stateless package transition", "package", transitionPackage.Name)
-		ignoreDifferences := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
-		_, err := helpers.CreateAndPushArgoApp(ctx, giteaClient.Get(), user.UserName, drRepo.Name, targetRepoName, clusterPolicy, transitionPackage, ignoreDifferences, log)
-		if err != nil {
-			log.Error(err, "Failed to push ArgoCD app manifest")
-			//add status that it failed to transition the package
-			clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-				PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-				LastTransitionTime:         metav1.Now(),
-				PackageTransitionCondition: transitionv1.PackageTransitionConditionFailed,
-				PackageTransitionMessage:   err.Error(),
-			})
 
-			if err := r.Status().Update(ctx, clusterPolicy); err != nil {
-				log.Error(err, "Failed to update ClusterPolicy status after transition failure")
-				return
-			}
+		ignoreDiffs := []helpers.ArgoAppSkipResourcesIgnoreDifferences{}
+		_, err := helpers.CreateAndPushArgoApp(
+			ctx, giteaClient.Get(), user.UserName, drRepo.Name,
+			targetRepoName, clusterPolicy, transitionPackage, ignoreDiffs, log,
+		)
+		if err != nil {
+			r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, err, transitionv1.PackageTransitionConditionFailed)
 			return
 		}
 
-		message := "Transitioned stateless package successfully"
-
-		err = helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd")
-		if err != nil {
-			log.Error(err, "Failed to trigger ArgoCD sync with kube client")
-			message += "; but the ArgoCD sync was not triggered successfully"
+		msg := "Transitioned stateless package successfully"
+		if err := helpers.TriggerArgoCDSyncWithKubeClient(targetClusterClient, targetClusterName+"-dr", "argocd"); err != nil {
+			log.Error(err, "ArgoCD sync failed")
+			msg += "; ArgoCD sync not triggered successfully"
 		}
-		clusterPolicy.Status.TransitionedPackages = append(clusterPolicy.Status.TransitionedPackages, transitionv1.TransitionedPackages{
-			PackageSelectors:           []transitionv1.PackageSelector{transitionPackage},
-			LastTransitionTime:         metav1.Now(),
-			PackageTransitionCondition: transitionv1.PackageTransitionConditionCompleted,
-			PackageTransitionMessage:   message,
-		})
 
-		if err := r.Status().Update(ctx, clusterPolicy); err != nil {
-			log.Error(err, "Failed to update ClusterPolicy status after successful transition")
-			return
-		}
-		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "clusterPolicy", clusterPolicy.Name)
-		return
+		r.updateClusterPolicyStatus(ctx, clusterPolicy, transitionPackage, fmt.Errorf(msg), transitionv1.PackageTransitionConditionCompleted)
+		log.Info("Successfully transitioned stateless package", "package", transitionPackage.Name, "duration", time.Since(start))
 
 	default:
 		log.Info("Unknown package type; skipping transition", "package", transitionPackage.Name)
 	}
+}
 
+// helper for concise status updates
+func (r *ClusterPolicyReconciler) updateClusterPolicyStatus(
+	ctx context.Context,
+	clusterPolicy *transitionv1.ClusterPolicy,
+	pkg transitionv1.PackageSelector,
+	err error,
+	condition transitionv1.PackageTransitionCondition,
+) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	clusterPolicy.Status.TransitionedPackages = append(
+		clusterPolicy.Status.TransitionedPackages,
+		transitionv1.TransitionedPackages{
+			PackageSelectors:           []transitionv1.PackageSelector{pkg},
+			LastTransitionTime:         metav1.Now(),
+			PackageTransitionCondition: condition,
+			PackageTransitionMessage:   msg,
+		},
+	)
+	if uerr := r.Status().Update(ctx, clusterPolicy); uerr != nil {
+		logf.FromContext(ctx).Error(uerr, "Failed to update ClusterPolicy status")
+	}
 }
 
 // trigger migration of workloads on a cluster node is unhealthy
@@ -1088,9 +1097,10 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 		}()
 
 		const (
-			checkInterval = 1 * time.Second
-			timeoutWindow = 5 * time.Second // same logic as heartbeat timeout
-			warmupPeriod  = 5 * time.Second // skip detection during initial startup
+			//checkInterval = 1 * time.Second
+			checkInterval = 300 * time.Millisecond
+			//timeoutWindow = 5 * time.Second // same logic as heartbeat timeout
+			warmupPeriod = 5 * time.Second // skip detection during initial startup
 		)
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
@@ -1100,6 +1110,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 			TLastHeartbeat time.Time
 			TDetected      time.Time
 			IsTriggered    bool
+			MissCount      int
 		}
 
 		state := &CPState{TLastHeartbeat: startupTime}
@@ -1124,7 +1135,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 					continue
 				}
 
-				checkCtx, cancelCheck := context.WithTimeout(monitorCtx, 2*time.Second)
+				checkCtx, cancelCheck := context.WithTimeout(monitorCtx, 500*time.Millisecond)
 				status, err := controlplane.CheckControlPlaneStatus(checkCtx, clusterClient)
 				cancelCheck()
 
@@ -1143,20 +1154,24 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 					state.TLastHeartbeat = time.Now()
 					state.IsTriggered = false
 					state.TDetected = time.Time{}
+					state.MissCount = 0
 					continue
 				}
 
 				// ---- Time-based control-plane fault detection ----
 				// Check silence duration
-				silence := now.Sub(state.TLastHeartbeat)
+				//silence := now.Sub(state.TLastHeartbeat)
 
+				state.MissCount++
 				if state.TDetected.IsZero() {
 					state.TDetected = now
 				}
 
-				if !state.IsTriggered && silence > timeoutWindow {
-					// state.TDetected = state.TLastHeartbeat
+				//if !state.IsTriggered && silence > timeoutWindow {
+				if !state.IsTriggered && state.MissCount > 2 {
+					//state.TDetected = state.TLastHeartbeat
 					state.IsTriggered = true
+					state.TDetected = now
 					detectionTime := state.TDetected.Sub(state.TLastHeartbeat)
 
 					log.Info("Control Plane Unhealthy Detected - triggering recovery",
@@ -1165,7 +1180,7 @@ func (r *ClusterPolicyReconciler) StartWorkloadClusterControlPlaneHealthMonitor(
 						"T_lastHeartbeat", state.TLastHeartbeat.Format("15:04:05.000"),
 						"T_detected", state.TDetected.Format("15:04:05.000"),
 						"DetectionTime", detectionTime.String(),
-						"T_recoveryStart", now.Format("15:04:05.000"),
+						"T_recoveryStart", state.TDetected.Format("15:04:05.000"),
 					)
 
 					// log.Info("Control plane status: "+string(status), "cluster", clusterName)
