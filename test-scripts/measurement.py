@@ -1,3 +1,4 @@
+  GNU nano 6.2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             measurement.py                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
 import argparse
 import os
 from kubernetes import client, config, watch
@@ -212,4 +213,3 @@ if __name__ == "__main__":
             app_type=args.app_type,
             app_name=args.app_name,
         )
-

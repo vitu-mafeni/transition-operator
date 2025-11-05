@@ -490,3 +490,144 @@ Controller annotations used to discover packages
 - Agent cannot reach MinIO: Verify MINIO_ENDPOINT and network policy. Confirm bucket exists and credentials are correct.
 - Controller cannot access Git or Registry: Validate secrets, network egress, and DNS.
 - Feature gate ignored: Ensure kubelet flag is placed in the right location for your distro and that systemd drop-ins aren’t overriding it.
+
+
+# **FAULT INJECTION** #
+All the scripts are in test-scripts folder
+
+## CNI Fault Injection and Recovery Guide
+
+## Preparation
+
+There’s a copy of the project in the `projects` folder — use **that one**, not the original folder of the `transitional-operator`.
+
+Switch to the target branch:
+
+```bash
+git checkout cni-fault
+```
+
+---
+
+## Injecting a CNI Fault
+
+On the **worker node**, inject a network fault with the following command:
+
+```bash
+sudo ip link delete cni0
+```
+
+This will remove the CNI interface from the worker node.  
+Typically, the controller runs a dummy pod on the control node and selects a random pod from the worker node to be pinged.  
+If the ping fails, it’s recognized as a **fault**.
+
+---
+
+## Recovery / Revert Procedure
+
+### Step 1: On the Worker Node
+
+1. **Stop kubelet** to prevent race conditions:
+   ```bash
+   sudo systemctl stop kubelet
+   ```
+
+2. **Clean up state completely:**
+   ```bash
+   sudo rm -rf /var/lib/cni/*
+   sudo rm -rf /var/run/flannel/*
+   sudo rm -rf /var/lib/kubelet/pods/*
+   sudo rm -rf /opt/cni/bin/flannel.lock 2>/dev/null || true
+   ```
+
+3. **Restart services:**
+   ```bash
+   sudo systemctl restart containerd
+   sudo systemctl start kubelet
+   ```
+
+---
+
+### Step 2: From the Management Cluster
+
+There’s a `kubeconfig` file available (e.g., `xazure2.kubeconfig`).  
+Run the following to restart all pods in every namespace:
+
+```bash
+for ns in $(kubectl get ns --no-headers -o custom-columns=":metadata.name" --kubeconfig xazure2.kubeconfig); do
+  echo "Restarting all pods in namespace: $ns"
+  kubectl delete pod --all -n $ns --kubeconfig xazure2.kubeconfig
+done
+```
+
+## API Server fault injection 
+
+## Stopping the API Server (Source Workload Cluster Control Node)
+
+To simulate a control plane fault or perform maintenance, you can stop the API server on the **source workload cluster control node**.
+
+1. **SSH into the control node:**
+   ```bash
+   ssh <user>@<control-node-ip>
+   ```
+
+2. **Navigate to the script directory:**
+   ```bash
+   cd /path/to/your/script
+   ```
+
+3. **Ensure the script is executable:**
+   ```bash
+   chmod +x stop-api-server.sh
+   ```
+
+4. **Run the script:**
+   ```bash
+   ./stop-api-server.sh
+   ```
+
+5. **Verify that the API server has stopped:**
+   ```bash
+   sudo systemctl status kube-apiserver
+   ```
+
+   You should see:
+   ```
+   ● kube-apiserver.service - Kubernetes API Server
+      Loaded: loaded (/etc/systemd/system/kube-apiserver.service; disabled)
+      Active: inactive (dead)
+   ```
+
+---
+
+---
+# Application Readiness and Measurement Test
+
+To test application readiness and measure recovery time:
+
+1. **Create a YAML file** named `apps-config.yaml` and add the following configuration:
+
+   ```yaml
+   # Example apps-config.yaml
+   - namespace: default
+     label: app=redis
+     app_url: 192.168.1.203
+     app_port: 30081
+     app_type: redis
+
+   - namespace: default
+     label: app=video
+     app_url: 192.168.1.203
+     app_port: 30080
+     app_type: http
+   ```
+
+2. **Run the measurement test** using the provided script:
+
+   ```bash
+   python3 measurement.py --apps-config apps-config.yaml
+   ```
+
+This script will check the applications’ readiness and measure the time it takes for them to recover after a fault.
+
+---
