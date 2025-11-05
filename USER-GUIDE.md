@@ -96,6 +96,8 @@ cd /tmp
 curl -L -o runc.new https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64
 mv /tmp/runc.new /usr/local/sbin/runc
 chmod +x /usr/local/sbin/runc
+
+mkdir /etc/criu
 ```
 
 ### Create /etc/criu/runc.conf
@@ -107,9 +109,11 @@ tcp-close
 skip-in-flight
 tcp-established
 log-file /tmp/criu.log
+
 enable-external-masters
 external mnt[]
 skip-mnt /proc/latency_stats
+
 ```
 
 ### Verify runc
