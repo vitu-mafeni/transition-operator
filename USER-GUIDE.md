@@ -96,6 +96,8 @@ cd /tmp
 curl -L -o runc.new https://github.com/opencontainers/runc/releases/download/v1.3.1/runc.amd64
 mv /tmp/runc.new /usr/local/sbin/runc
 chmod +x /usr/local/sbin/runc
+
+mkdir /etc/criu
 ```
 
 ### 6.2 Create /etc/criu/runc.conf
@@ -107,9 +109,11 @@ tcp-close
 skip-in-flight
 tcp-established
 log-file /tmp/criu.log
+
 enable-external-masters
 external mnt[]
 skip-mnt /proc/latency_stats
+
 ```
 
 ### 6.3 Verify runc
@@ -488,189 +492,143 @@ Controller annotations used to discover packages
 - Controller cannot access Git or Registry: Validate secrets, network egress, and DNS.
 - Feature gate ignored: Ensure kubelet flag is placed in the right location for your distro and that systemd drop-ins aren’t overriding it.
 
-# II. Testing Procedure
-This section validates migration under three fault scenarios: (A) Worker Node Failure, (B) Control-Plane (API-Server) Failure, and (C) Network (CNI) Failure. Each scenario includes: Injection → Confirmation → Revert. A final section (D) details cleanup between tests.
 
-> Prereqs: Have completed Section I (Installation and Infrastructure Setup), appplications (redis and/or video) are deployed on source cluster (Azure), the Transition-Operator is running on management cluster, the checkpoint-agent is running on worker node of source cluster, a ClusterPolicy is created, and measurement.py is ready to run on target cluster (AWS)
-## 1. Verify Environment is Ready
-### 1.1 Confirm apps are deployed on source cluster
-(Example: video Deployment and/or redis)
-```
-kubectl get pod --kubeconfig azure.kubeconfig
-```
-![image.png](images/image21.png)
-## 1.2 Start Transition-Operator on management cluster
- 
- ```
- cd projects/transition-operator/
- make run
- ```
+# **FAULT INJECTION** #
+All the scripts are in test-scripts folder
 
- <!-- ![image.png](images/image21.png) -->
+## CNI Fault Injection and Recovery Guide
 
- ## 1.3 Start checkpoint-agent on source nodes
-On each source worker node (SSH into the node):
+## Preparation
 
-```
-cd ~/checkpoint-agent/agent-og
-go run main.go 
-```
-<!-- ![image.png](images/image21.png) -->
+There’s a copy of the project in the `projects` folder — use **that one**, not the original folder of the `transitional-operator`.
 
-## 1.4 Edit/Apply ClusterPolicy (on mgmt)
-
-Make sure policy names the source, target clusters, source cluster repository, name of applications
+Switch to the target branch:
 
 ```bash
-# propagationpolicy-update.yaml
-apiVersion: transition.dcnlab.ssu.ac.kr/v1
-kind: ClusterPolicy
-metadata:
-  name: clusterpolicy-sample
-spec:
-  clusterSelector:
-    name: cluster1-azure
-    repo: http://3.0.52.147:30782/nephio/cluster1-azure.git # repo where the cluster workloads is defined
-      #repo: http://3.0.52.147:30782/nephio/cluster2-aws.git
-    repoType: git
-  packageSelectors:
-    - name: video # Package Name
-      packagePath: video # where the package is in the repo
-      packageType: Stateful # Stateless, Stateful
-      liveStatePackage: true
-      backupInformation:
-        # - name: my-test-backup # Backup Name
-        #   backupType: Manual # Manual, Schedule
-        - name: my-test-backup # Schedule Name
-          backupType: Schedule # Manual, Schedule
-          schedulePeriod: "*/2 * * * *" # cron format
-    - name: redis # Package Name
-      packagePath: redis # where the package is in the repo
-      packageType: Stateful # Stateless, Stateful
-      liveStatePackage: true
-      backupInformation:
-        # - name: my-test-backup # Backup Name
-        #   backupType: Manual # Manual, Schedule
-        - name: my-test-backup1 # Schedule Name
-          backupType: Schedule # Manual, Schedule
-          schedulePeriod: "*/2 * * * *" # cron format
-  targetClusterPolicy:
-    preferClusters:
-      - name: cluster2-aws
-        repoType: git
-        weight: 100
+git checkout cni-fault
 ```
 
-```
-kubectl apply -f /tmp/multiapp-clusterpolicy.yaml
-```
-multiapp-clusterpolicy.yaml --> use for case A and B failure
+---
 
-cni-fault ---> case C
+## Injecting a CNI Fault
 
-## 1.5 Start metrics capture on the target cluster (AWS)
-SSH to target cluster (AWS)
+On the **worker node**, inject a network fault with the following command:
 
-(Install necessary packages if not installed)
-```
-pip3 install argparse, kubernetes, redis
-```
-and create `apps-config.yaml` file
-```yaml
-# Example apps.yaml
-- namespace: default
-  label: app=video
-  app_url: 3.0.52.147
-  app_port: 30080
-  app_type: http
-
-- namespace: default
-  label: app=redis
-  app_url: 3.0.52.147
-  app_port: 31075
-  app_type: redis
-```
- Start and keep the script running before you inject faults
-
- ```
- python3 measurement.py --apps-config apps-config.yaml
- ```
-
-<!-- ![image.png](images/image21.png) -->
-
-## 2. (A) Worker Node Failure Injection
-### 2.1 Cause Failure (choose one)
-- Stop heartbeat Agent on the worker node of source cluster
-- Stop the entire worker node VM: In your cloud console → Stop / Power Off the worker node instance.
-### 2.2 Observe Migration and measure recovery metrics
-Look for event  `Node Unhealthy Detected` on Transition Operator logs (management cluster)
-<!-- ![image.png](images/image21.png) -->
-
-And `measurement.py` output
-<!-- ![image.png](images/image21.png) -->
-
-Compare `startRecovery` timestamp vs `recoveryCompleted` timestamp → Service Recovery Time
-
-### 2.3 Restart Heartbeat Agent to return to normal and cleanups (5.D)
-## 3. (B) Control-Plane (API-Server) Failure Injection
-### 3.1 Stop the API-server using the provided script
-```
-./stop-apiserver.sh
-```
-Leave it running ~10–20 seconds → Then press Ctrl + C to restore
-### 3.2 Observe Migration and measure recovery metrics
-Look for event  `Control Plane Unhealthy Detected` on Transition Operator logs (management cluster)
-<!-- ![image.png](images/image21.png) -->
-
-And `measurement.py` output
-<!-- ![image.png](images/image21.png) -->
-
-Compare `startRecovery` timestamp vs `recoveryCompleted` timestamp → Service Recovery Time
-### 3.3 Stop the script to return to normal and cleanups (5.D)
-## 4. (C) Network (CNI) Failure Injection
-### 4.1 Break pod network by deleting the CNI bridge
-```
+```bash
 sudo ip link delete cni0
 ```
-This immediately breaks pod networking on this node.
-### 4.2 Observe Migration and measure recovery metrics
-Look for event  `CNI Unhealthy Detected` on Transition Operator logs (management cluster)
-<!-- ![image.png](images/image21.png) -->
 
-And `measurement.py` output
-<!-- ![image.png](images/image21.png) -->
+This will remove the CNI interface from the worker node.  
+Typically, the controller runs a dummy pod on the control node and selects a random pod from the worker node to be pinged.  
+If the ping fails, it’s recognized as a **fault**.
 
-Compare `startRecovery` timestamp vs `recoveryCompleted` timestamp → Service Recovery Time
-### 4.3 Revert and Restore CNI and cleanups (5.D)
-```
-# Stop kubelet on worker node to avoid racing
-sudo systemctl stop kubelet
+---
 
-# Clean state on worker node
-sudo rm -rf /var/lib/cni/*
-sudo rm -rf /var/run/flannel/*
-sudo rm -rf /var/lib/kubelet/pods/*
-sudo rm -rf /opt/cni/bin/flannel.lock 2>/dev/null || true
+## Recovery / Revert Procedure
 
-# Restart container runtime and kubelet on worker node
-sudo systemctl restart containerd
-sudo systemctl start kubelet
+### Step 1: On the Worker Node
 
-# Restart all pods to force CNI re-attachment -  on management cluster
-for ns in $(kubectl get ns --no-headers -o custom-columns=":metadata.name" --kubeconfig src-azure.kubeconfig); do
-  kubectl delete pod --all -n $ns --kubeconfig src-azure.kubeconfig
+1. **Stop kubelet** to prevent race conditions:
+   ```bash
+   sudo systemctl stop kubelet
+   ```
+
+2. **Clean up state completely:**
+   ```bash
+   sudo rm -rf /var/lib/cni/*
+   sudo rm -rf /var/run/flannel/*
+   sudo rm -rf /var/lib/kubelet/pods/*
+   sudo rm -rf /opt/cni/bin/flannel.lock 2>/dev/null || true
+   ```
+
+3. **Restart services:**
+   ```bash
+   sudo systemctl restart containerd
+   sudo systemctl start kubelet
+   ```
+
+---
+
+### Step 2: From the Management Cluster
+
+There’s a `kubeconfig` file available (e.g., `xazure2.kubeconfig`).  
+Run the following to restart all pods in every namespace:
+
+```bash
+for ns in $(kubectl get ns --no-headers -o custom-columns=":metadata.name" --kubeconfig xazure2.kubeconfig); do
+  echo "Restarting all pods in namespace: $ns"
+  kubectl delete pod --all -n $ns --kubeconfig xazure2.kubeconfig
 done
+```
 
-```
-## 5. Revert / Cleanup After Each Test (Return to Baseline)
-- Clean DR (target) repo of generated migration manifests.
-- ArgoCD sync target cluster to remove migrated workloads
-- Remove ClusterPolicy
-```
-kubectl delete clusterpolicy <name>
-```
-- Delete any leftover Checkpoint resources
-```
-kubectl delete checkpoint <name>
-```
-- (Optional) If workloads were modified during testing, restore original container image tags in the source repo, then sync
+## API Server fault injection 
+
+## Stopping the API Server (Source Workload Cluster Control Node)
+
+To simulate a control plane fault or perform maintenance, you can stop the API server on the **source workload cluster control node**.
+
+1. **SSH into the control node:**
+   ```bash
+   ssh <user>@<control-node-ip>
+   ```
+
+2. **Navigate to the script directory:**
+   ```bash
+   cd /path/to/your/script
+   ```
+
+3. **Ensure the script is executable:**
+   ```bash
+   chmod +x stop-api-server.sh
+   ```
+
+4. **Run the script:**
+   ```bash
+   ./stop-api-server.sh
+   ```
+
+5. **Verify that the API server has stopped:**
+   ```bash
+   sudo systemctl status kube-apiserver
+   ```
+
+   You should see:
+   ```
+   ● kube-apiserver.service - Kubernetes API Server
+      Loaded: loaded (/etc/systemd/system/kube-apiserver.service; disabled)
+      Active: inactive (dead)
+   ```
+
+---
+
+---
+# Application Readiness and Measurement Test
+
+To test application readiness and measure recovery time:
+
+1. **Create a YAML file** named `apps-config.yaml` and add the following configuration:
+
+   ```yaml
+   # Example apps-config.yaml
+   - namespace: default
+     label: app=redis
+     app_url: 192.168.1.203
+     app_port: 30081
+     app_type: redis
+
+   - namespace: default
+     label: app=video
+     app_url: 192.168.1.203
+     app_port: 30080
+     app_type: http
+   ```
+
+2. **Run the measurement test** using the provided script:
+
+   ```bash
+   python3 measurement.py --apps-config apps-config.yaml
+   ```
+
+This script will check the applications’ readiness and measure the time it takes for them to recover after a fault.
+
+---
