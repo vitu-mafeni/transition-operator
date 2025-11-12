@@ -1,21 +1,23 @@
 # Cluster Migration Guide
+This guide provides a structured approach for migrating both stateless and stateful workloads across Kubernetes clusters. The migration mechanism leverages container checkpointing, a management-plane migration operator, and a node-level checkpoint agent to capture and restore running application state.
+The documentation is organized into two main parts:
 
-A step-by-step guide to migrate stateful and stateless workloads between clusters using container checkpointing, a management-plane operator, and a node-level checkpoint agent.
+1. **Installation and Infrastructure Setup**: Covers environment prerequisites, cluster preparation, operator deployment, and storage/network configuration requirements.
+2. **Testing procedure**: Demonstrates how to trigger a migration, verify checkpoint and restore steps, and evaluate service continuity during failover or planned transitions.
 
----
+# I. Installation and Infrastructure Setup
 
-## Overview
+## 1. Overview
 
 - Management plane runs controllers on the management cluster.
 - Workload plane runs the checkpoint-agent on source worker nodes.
 - Storage and network configuration must match between source and target for successful restoration.
 
 > Important: Source and destination clusters must run identical versions of kubelet, containerd, CRIU, and runc.
-> 
 
 ---
 
-## Prerequisites
+## 2. Prerequisites
 
 - Kubernetes >= 1.30 on all clusters
 - containerd >= 2.1.4 on all nodes
@@ -30,27 +32,25 @@ A step-by-step guide to migrate stateful and stateless workloads between cluster
 
 ---
 
-## Package variants to keep when creating workload clusters
+## 3. Package variants to keep when creating workload clusters
 
 ![image.png](images/image.png)
 
-
 ---
 
-## Cluster naming and environment
+## 4. Cluster naming and environment
 
 - Azure clusters: Replace occurrences of the word "example" with the actual cluster name, for example, cluster1-azure.
 
 ![image.png](images/image%201.png)
 
-
 - Set environment variables to match the cloud account you are using (Azure or AWS). Keep provider-specific CIDRs and network settings consistent with your cloud resources.
 
 ---
 
-## Management Cluster Setup
+## 5. Management Cluster Setup
 
-### Initialize providers and tooling
+### 5.1 Initialize providers and tooling
 
 ```bash
 clusterctl init --infrastructure azure
@@ -59,7 +59,7 @@ apt install -y buildah
 mkdir -p /var/lib/kubelet/checkpoints # where the controller will access checkpoints if needed
 ```
 
-### Use Flannel CNI
+### 5.2 Use Flannel CNI
 
 All clusters here are configured with Pod CIDR 10.244.0.0/16.
 
@@ -69,7 +69,7 @@ kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/
 
 - Note: By default, CAPI resources often use Pod CIDR 192.168.0.0/16. Ensure this matches your Flannel config.
 
-### Azure cloud controller for Flannel
+### 5.3 Azure cloud controller for Flannel
 
 For Azure, install the cloud provider controller and set a matching clusterCIDR. Adjust if your actual pod CIDR differs.
 
@@ -80,9 +80,9 @@ helm install --repo https://raw.githubusercontent.com/kubernetes-sigs/cloud-prov
 
 ---
 
-## Prepare Worker Nodes (source and destination)
+## 6. Prepare Worker Nodes (source and destination)
 
-### Install CRIU and align runc
+### 6.1 Install CRIU and align runc
 
 ```bash
 curl -fsSL https://download.opensuse.org/repositories/devel:/tools:/criu/xUbuntu_22.04/Release.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/criu.gpg
@@ -100,7 +100,7 @@ chmod +x /usr/local/sbin/runc
 mkdir /etc/criu
 ```
 
-### Create /etc/criu/runc.conf
+### 6.2 Create /etc/criu/runc.conf
 
 ```bash
 # /etc/criu/runc.conf
@@ -116,7 +116,7 @@ skip-mnt /proc/latency_stats
 
 ```
 
-### Verify runc
+### 6.3 Verify runc
 
 Output should be identical across nodes:
 
@@ -130,7 +130,7 @@ runc --version
 # libseccomp: 2.5.6
 ```
 
-### Enable kubelet feature gate (checkpointing)
+### 6.4 Enable kubelet feature gate (checkpointing)
 
 ```bash
 nano /etc/default/kubelet
@@ -146,7 +146,7 @@ systemctl restart kubelet containerd
 
 ---
 
-## SSH and Access (optional helpers)
+## 6.5 SSH and Access (optional helpers)
 
 To copy SSH keys from capi to root:
 
@@ -177,7 +177,7 @@ Host azure-target-box
 
 ---
 
-## Cloud Setup on Management Cluster (Azure example)
+## 7. Cloud Setup on Management Cluster (Azure example)
 
 Install Azure CLI:
 
@@ -207,9 +207,9 @@ az identity create \
 
 ---
 
-## Secrets and Credentials
+## 8. Secrets and Credentials
 
-### Gitea credentials secret
+### 8.1 Gitea credentials secret
 
 ```bash
 kubectl create secret generic git-user-secret \
@@ -218,18 +218,18 @@ kubectl create secret generic git-user-secret \
   -n default
 ```
 
-### Go installation
+### 8.2 Go installation
 
 Follow the official guide: [https://go.dev/doc/install](https://go.dev/doc/install)
 
-### Clone the operator
+### 8.3 Clone the operator
 
 ```bash
 mkdir -p ~/projects && cd ~/projects
 git clone https://github.com/vitu-mafeni/transition-operator.git
 ```
 
-### Environment variables
+### 8.4 Environment variables
 
 MinIO console defaults: username "nephio1234" and password "secret1234".
 
@@ -256,14 +256,14 @@ export POD_NAMESPACE="default"
 export REGISTRY_PASSWORD="PUT_PASSWORD_HERE" # Use a Docker Hub access token
 ```
 
-### Create registry credentials secret
+### 8.5 Create registry credentials secret
 
 ```bash
  # Base64 ecredentials
  username_b64=$(echo -n "$REPOSITORY" | base64 -w 0) 
  password_b64=$(echo -n "$REGISTRY_PASSWORD" | base64 -w 0)
  registry_b64=$(echo -n "$REGISTRY_URL" | base64 -w 0) # docker.io
-    
+  
 # Create secret manifest
   
 cat > /tmp/registry-credentials.yaml <<EOF
@@ -283,7 +283,7 @@ kubectl apply -f /tmp/registry-credentials.yaml
 
 - Note: Use a Docker Hub access token rather than your account password.
 
-### Service account for checkpoint operations (source cluster)
+### 8.6 Service account for checkpoint operations (source cluster)
 
 - source-cluster is the cluster where we will transition from
 
@@ -362,7 +362,7 @@ kubectl apply -f /tmp/checkpoint-sa.yaml --kubeconfig <source-cluster>
 
 ---
 
-## Build and Run the Controller (management cluster)
+## 9. Build and Run the Controller (management cluster)
 
 ```bash
 cd ~/projects/<controller-repo>
@@ -372,7 +372,7 @@ make install
 make run
 ```
 
-### ClusterPolicy configuration
+### 9.1 ClusterPolicy configuration
 
 Update values to match your environment, then apply to the management cluster.
 
@@ -420,7 +420,7 @@ kubectl apply -f /tmp/cluster-policy.yaml
 
 ---
 
-## Workload Cluster: Source Worker Node
+## 10. Workload Cluster: Source Worker Node
 
 Clone the checkpoint agent and run it on the node that hosts the workload to be transitioned.
 
@@ -455,7 +455,7 @@ go run main.go
 
 ---
 
-## Accessing the Sample Video Application
+## 11. Accessing the Sample Video Application
 
 Port-forward for AWS or Azure clusters:
 
@@ -467,27 +467,24 @@ Adding the video application to the catalog
 
 ![image.png](images/image%202.png)
 
-
 Controller annotations used to discover packages
 
 ![image.png](images/image%203.png)
 
 ---
-## Other resources
 
+## A.1 Other resources
 
 ---
 
-## Notes and Best Practices
+## A.2 Notes and Best Practices
 
 - All commands are installed and run with root privileges.
 - Run the operator and node agent with root privileges.
 - Keep software versions identical between source and destination nodes.
 - Validate Pod CIDR consistency between CAPI resources and your CNI.
 
----
-
-## Troubleshooting
+## A.3 Troubleshooting
 
 - Flannel not routing pods across nodes: Verify Pod CIDR alignment and ensure cloud-controller integration on Azure.
 - Checkpoint restore fails: Confirm CRIU and runc compatibility. Review /tmp/criu.log on the node.
