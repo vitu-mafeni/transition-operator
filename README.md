@@ -1,4 +1,4 @@
-# transition-operator
+## transition-operator
 Check user guide step by step [HERE](USER-GUIDE.md)
 ## Description
 // TODO(user): An in-depth paragraph about your project and overview of use
