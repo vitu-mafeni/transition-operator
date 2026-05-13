@@ -1,6 +1,6 @@
-# =========================
-# Builder
-# =========================
+# =========================================================
+# Builder Stage
+# =========================================================
 FROM golang:1.24 AS builder
 
 ARG TARGETOS
@@ -8,57 +8,57 @@ ARG TARGETARCH
 
 WORKDIR /workspace
 
-# Go dependencies
 COPY go.mod go.mod
 COPY go.sum go.sum
 
 RUN go mod download
 
-# Source
 COPY cmd/main.go cmd/main.go
 COPY api/ api/
 COPY internal/ internal/
 COPY reconcilers/ reconcilers/
 
-# Build binary
-RUN CGO_ENABLED=0 \
-    GOOS=${TARGETOS:-linux} \
-    GOARCH=${TARGETARCH} \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -a -o manager cmd/main.go
 
+# =========================================================
+# Runtime Stage
+# =========================================================
+FROM ubuntu:24.04
 
-# =========================
-# Production Image
-# =========================
-# FROM gcr.io/distroless/static:nonroot AS production
+ENV DEBIAN_FRONTEND=noninteractive
 
-# WORKDIR /
+RUN apt-get update && apt-get install -y \
+    bash \
+    curl \
+    wget \
+    git \
+    ca-certificates \
+    buildah \
+    skopeo \
+    fuse-overlayfs \
+    uidmap \
+    iptables \
+    containernetworking-plugins \
+    && rm -rf /var/lib/apt/lists/*
 
-# COPY --from=builder /workspace/manager .
+# Create checkpoint directory
+RUN mkdir -p /var/lib/kubelet/checkpoints
 
-# USER 65532:65532
+# Buildah storage configuration
+RUN mkdir -p /etc/containers
 
-# ENTRYPOINT ["/manager"]
-
-
-# =========================
-# Debug Image
-# =========================
-FROM alpine:3.20 AS debug
+RUN printf '[storage]\ndriver = "vfs"\nrunroot = "/tmp/runroot"\ngraphroot = "/tmp/graphroot"\n' \
+    > /etc/containers/storage.conf
 
 WORKDIR /
 
 COPY --from=builder /workspace/manager .
 
-RUN apk add --no-cache \
-    bash \
-    curl \
-    busybox-extras
+RUN useradd -u 65532 -m appuser
 
-# Create non-root user/group with fixed numeric IDs
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -u 1001 -S appuser -G appgroup
+RUN chown -R 65532:65532 /tmp
 
-USER 1001:1001
+USER 65532:65532
 
 ENTRYPOINT ["/manager"]
