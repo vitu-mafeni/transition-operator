@@ -2765,7 +2765,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: docker.io/vitu1/transition-operator:v1.0.0
+        image: docker.io/vitu1/transition-operator:debug
+        imagePullPolicy: Always
         livenessProbe:
           httpGet:
             path: /healthz

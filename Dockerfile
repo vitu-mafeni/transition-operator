@@ -55,4 +55,8 @@ RUN apk add --no-cache \
     curl \
     busybox-extras
 
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+USER appuser
+
 ENTRYPOINT ["/manager"]
