@@ -2624,7 +2624,7 @@ subjects:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: transition-operator-git-secret
+  name: git-secret
   namespace: transition-operator-system
 stringData:
   GIT_SECRET_NAME: git-user-secret
@@ -2635,7 +2635,7 @@ type: Opaque
 apiVersion: v1
 kind: Secret
 metadata:
-  name: transition-operator-minio-secret
+  name: minio-secret
   namespace: transition-operator-system
 stringData:
   MINIO_ACCESS_KEY: nephio1234
@@ -2647,7 +2647,7 @@ type: Opaque
 apiVersion: v1
 kind: Secret
 metadata:
-  name: transition-operator-reg-credentials
+  name: reg-credentials
   namespace: transition-operator-system
 stringData:
   password: changeme
@@ -2717,37 +2717,37 @@ spec:
           valueFrom:
             secretKeyRef:
               key: MINIO_ENDPOINT
-              name: transition-operator-minio-secret
+              name: minio-secret
         - name: MINIO_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               key: MINIO_ACCESS_KEY
-              name: transition-operator-minio-secret
+              name: minio-secret
         - name: MINIO_SECRET_KEY
           valueFrom:
             secretKeyRef:
               key: MINIO_SECRET_KEY
-              name: transition-operator-minio-secret
+              name: minio-secret
         - name: MINIO_BUCKET
           valueFrom:
             secretKeyRef:
               key: MINIO_BUCKET
-              name: transition-operator-minio-secret
+              name: minio-secret
         - name: REPOSITORY
           valueFrom:
             secretKeyRef:
               key: username
-              name: transition-operator-reg-credentials
+              name: reg-credentials
         - name: REGISTRY_PASSWORD
           valueFrom:
             secretKeyRef:
               key: password
-              name: transition-operator-reg-credentials
+              name: reg-credentials
         - name: REGISTRY_URL
           valueFrom:
             secretKeyRef:
               key: registry
-              name: transition-operator-reg-credentials
+              name: reg-credentials
         - name: SECRET_NAME_REF
           value: reg-credentials
         - name: SECRET_NAMESPACE_REF
@@ -2756,17 +2756,17 @@ spec:
           valueFrom:
             secretKeyRef:
               key: GIT_SERVER_URL
-              name: transition-operator-git-secret
+              name: git-secret
         - name: GIT_SECRET_NAME
           valueFrom:
             secretKeyRef:
               key: GIT_SECRET_NAME
-              name: transition-operator-git-secret
+              name: git-secret
         - name: GIT_SECRET_NAMESPACE
           valueFrom:
             secretKeyRef:
               key: GIT_SECRET_NAMESPACE
-              name: transition-operator-git-secret
+              name: git-secret
         - name: HEARTBEAT_FAULT_DELAY
           value: "15"
         - name: POD_NAMESPACE
