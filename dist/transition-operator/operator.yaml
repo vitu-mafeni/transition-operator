@@ -2624,12 +2624,22 @@ subjects:
 apiVersion: v1
 kind: Secret
 metadata:
+  name: git-user-secret
+  namespace: default
+type: Opaque
+stringData:
+  username: nephio
+  password: secret
+---
+apiVersion: v1
+kind: Secret
+metadata:
   name: git-secret
   namespace: transition-operator-system
 stringData:
   GIT_SECRET_NAME: git-user-secret
   GIT_SECRET_NAMESPACE: default
-  GIT_SERVER_URL: http://54.255.162.223:31416
+  GIT_SERVER_URL: http://54.255.162.223:31416 # change to your git server url
 type: Opaque
 ---
 apiVersion: v1
@@ -2638,10 +2648,10 @@ metadata:
   name: minio-secret
   namespace: transition-operator-system
 stringData:
-  MINIO_ACCESS_KEY: nephio1234
-  MINIO_BUCKET: checkpoints
-  MINIO_ENDPOINT: 54.255.162.223:32001
-  MINIO_SECRET_KEY: secret1234
+  MINIO_ACCESS_KEY: nephio1234 # change to your minio access key
+  MINIO_BUCKET: checkpoints  # change to your minio bucket name
+  MINIO_ENDPOINT: 54.255.162.223:32001 # change to your minio endpoint
+  MINIO_SECRET_KEY: secret1234 # change to your minio secret key
 type: Opaque
 ---
 apiVersion: v1
@@ -2650,9 +2660,9 @@ metadata:
   name: reg-credentials
   namespace: transition-operator-system
 stringData:
-  password: changeme
+  password: changeme # change to your dockerhub password or access token
   registry: docker.io
-  username: vitu1
+  username: vitu1 # change to your dockerhub username
 type: Opaque
 ---
 apiVersion: v1
