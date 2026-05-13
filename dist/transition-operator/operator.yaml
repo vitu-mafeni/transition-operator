@@ -2689,12 +2689,15 @@ metadata:
     control-plane: controller-manager
   name: transition-operator-controller-manager
   namespace: transition-operator-system
+
 spec:
   replicas: 1
+
   selector:
     matchLabels:
       app.kubernetes.io/name: transition-operator
       control-plane: controller-manager
+
   template:
     metadata:
       annotations:
@@ -2702,125 +2705,163 @@ spec:
       labels:
         app.kubernetes.io/name: transition-operator
         control-plane: controller-manager
+
     spec:
+      serviceAccountName: transition-operator-controller-manager
+      terminationGracePeriodSeconds: 10
+
+      securityContext:
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
-      - args:
-        - --metrics-bind-address=:8443
-        - --leader-elect
-        - --health-probe-bind-address=:8081
+      - name: manager
+
+        image: docker.io/vitu1/transition-operator:debug
+        imagePullPolicy: Always
+
         command:
         - /manager
 
+        args:
+        - --metrics-bind-address=:8443
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+
+        - containerPort: 8090
+          name: heartbeat
+          protocol: TCP
 
         env:
         - name: MINIO_ENDPOINT
           valueFrom:
             secretKeyRef:
-              key: MINIO_ENDPOINT
               name: minio-secret
+              key: MINIO_ENDPOINT
+
         - name: MINIO_ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              key: MINIO_ACCESS_KEY
               name: minio-secret
+              key: MINIO_ACCESS_KEY
+
         - name: MINIO_SECRET_KEY
           valueFrom:
             secretKeyRef:
-              key: MINIO_SECRET_KEY
               name: minio-secret
+              key: MINIO_SECRET_KEY
+
         - name: MINIO_BUCKET
           valueFrom:
             secretKeyRef:
-              key: MINIO_BUCKET
               name: minio-secret
+              key: MINIO_BUCKET
+
         - name: REPOSITORY
           valueFrom:
             secretKeyRef:
-              key: username
               name: reg-credentials
+              key: username
+
         - name: REGISTRY_PASSWORD
           valueFrom:
             secretKeyRef:
-              key: password
               name: reg-credentials
+              key: password
+
         - name: REGISTRY_URL
           valueFrom:
             secretKeyRef:
-              key: registry
               name: reg-credentials
+              key: registry
+
         - name: SECRET_NAME_REF
           value: reg-credentials
+
         - name: SECRET_NAMESPACE_REF
           value: default
+
         - name: GIT_SERVER_URL
           valueFrom:
             secretKeyRef:
-              key: GIT_SERVER_URL
               name: git-secret
+              key: GIT_SERVER_URL
+
         - name: GIT_SECRET_NAME
           valueFrom:
             secretKeyRef:
-              key: GIT_SECRET_NAME
               name: git-secret
+              key: GIT_SECRET_NAME
+
         - name: GIT_SECRET_NAMESPACE
           valueFrom:
             secretKeyRef:
-              key: GIT_SECRET_NAMESPACE
               name: git-secret
+              key: GIT_SECRET_NAMESPACE
+
         - name: HEARTBEAT_FAULT_DELAY
           value: "15"
+
         - name: POD_NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
-        image: docker.io/vitu1/transition-operator:debug
-        imagePullPolicy: Always
+
+        securityContext:
+          privileged: true
+          runAsUser: 0
+          runAsGroup: 0
+          runAsNonRoot: false
+          allowPrivilegeEscalation: true
+
+          capabilities:
+            add:
+            - SYS_ADMIN
+
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp-storage
+
+        - mountPath: /var/tmp
+          name: var-tmp-storage
+
+        - mountPath: /storage
+          name: storage
+
+        - mountPath: /var/lib/containers
+          name: containers-storage
+
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+            ephemeral-storage: 2Gi
+
+          limits:
+            cpu: 1
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+
         livenessProbe:
           httpGet:
             path: /healthz
             port: 8081
           initialDelaySeconds: 15
           periodSeconds: 20
-        name: manager
-        ports:
-        - containerPort: 8443
-          name: https
-          protocol: TCP
-        - containerPort: 8090
-          name: heartbeat
-          protocol: TCP
+
         readinessProbe:
           httpGet:
             path: /readyz
             port: 8081
           initialDelaySeconds: 5
           periodSeconds: 10
-        resources:
-          requests:
-            cpu: 100m
-            memory: 256Mi
-            ephemeral-storage: 2Gi
-          limits:
-            cpu: 1
-            memory: 2Gi
-            ephemeral-storage: 10Gi
 
-        securityContext:
-          privileged: true
-          runAsUser: 0
-          runAsGroup: 0
-          allowPrivilegeEscalation: true
-          capabilities:
-            add:
-            - SYS_ADMIN
-
-        volumeMounts: []
-      securityContext:
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      serviceAccountName: transition-operator-controller-manager
-      terminationGracePeriodSeconds: 10
       volumes:
       - name: tmp-storage
         emptyDir: {}
@@ -2835,3 +2876,4 @@ spec:
       - name: containers-storage
         emptyDir:
           sizeLimit: 20Gi
+
