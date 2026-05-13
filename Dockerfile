@@ -55,8 +55,10 @@ RUN apk add --no-cache \
     curl \
     busybox-extras
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# Create non-root user/group with fixed numeric IDs
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
 
-USER appuser
+USER 1001:1001
 
 ENTRYPOINT ["/manager"]
