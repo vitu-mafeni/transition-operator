@@ -66,24 +66,87 @@ spec:
         image: controller:latest
         name: manager
 
-        envFrom:
-          - secretRef:
-              name: minio-secret
-
-          - secretRef:
-              name: registry-secret
-
-          - secretRef:
-              name: git-secret
-
         env:
-          - name: HEARTBEAT_FAULT_DELAY
-            value: "20"
+        # MinIO
+        - name: MINIO_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ENDPOINT
 
-          - name: POD_NAMESPACE
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.namespace
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_ACCESS_KEY
+
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_SECRET_KEY
+
+        - name: MINIO_BUCKET
+          valueFrom:
+            secretKeyRef:
+              name: minio-secret
+              key: MINIO_BUCKET
+
+        # Registry
+        - name: REPOSITORY
+          valueFrom:
+            secretKeyRef:
+              name: reg-credentials
+              key: username
+
+        - name: REGISTRY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: reg-credentials
+              key: password
+
+        - name: REGISTRY_URL
+          valueFrom:
+            secretKeyRef:
+              name: reg-credentials
+              key: registry
+
+        # Registry secret refs
+        - name: SECRET_NAME_REF
+          value: "reg-credentials"
+
+        - name: SECRET_NAMESPACE_REF
+          value: "default"
+
+        # Git
+        - name: GIT_SERVER_URL
+          valueFrom:
+            secretKeyRef:
+              name: git-secret
+              key: GIT_SERVER_URL
+
+        - name: GIT_SECRET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: git-secret
+              key: GIT_SECRET_NAME
+
+        - name: GIT_SECRET_NAMESPACE
+          valueFrom:
+            secretKeyRef:
+              name: git-secret
+              key: GIT_SECRET_NAMESPACE
+
+        # Heartbeat
+        - name: HEARTBEAT_FAULT_DELAY
+          value: "15"
+
+        # Namespace
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
         ports:
         - containerPort: 8443
           name: https
