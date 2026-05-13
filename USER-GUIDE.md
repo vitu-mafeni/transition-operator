@@ -58,7 +58,27 @@ snap install helm --classic
 apt install -y buildah
 mkdir -p /var/lib/kubelet/checkpoints # where the controller will access checkpoints if needed
 ```
+- Install and configure azure CLI
 
+```bash
+
+curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+# Login to azure using the CLI
+az login
+# Create resource group
+az group create --location koreasouth --resource-group capi-test
+# Create the identity group in the target resource group
+az identity create \
+  --name cloud-provider-user-identity \
+  --resource-group capi-test 
+# Verify
+az identity show 
+  --name cloud-provider-user-identity 
+  --resource-group capi-test
+```
+NB: We use these instance types for the clouds during testing
+  - Azure -> Instance type: `Standard_D4s_v3`  with 16384RAM and 4 Cores
+  - AWS -> Instance type: `t3.xlarge` with the same 16RAM 4 cores
 ### 5.2 Use Flannel CNI
 
 All clusters here are configured with Pod CIDR 10.244.0.0/16.
