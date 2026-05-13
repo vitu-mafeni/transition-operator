@@ -2629,7 +2629,7 @@ metadata:
 stringData:
   GIT_SECRET_NAME: git-user-secret
   GIT_SECRET_NAMESPACE: default
-  GIT_SERVER_URL: http://47.129.115.173:31413
+  GIT_SERVER_URL: http://54.255.162.223:31416
 type: Opaque
 ---
 apiVersion: v1
@@ -2640,7 +2640,7 @@ metadata:
 stringData:
   MINIO_ACCESS_KEY: nephio1234
   MINIO_BUCKET: checkpoints
-  MINIO_ENDPOINT: 47.129.115.173:31092
+  MINIO_ENDPOINT: 54.255.162.223:32001
   MINIO_SECRET_KEY: secret1234
 type: Opaque
 ---
@@ -2650,7 +2650,7 @@ metadata:
   name: transition-operator-reg-credentials
   namespace: transition-operator-system
 stringData:
-  password: your-token
+  password: changeme
   registry: docker.io
   username: vitu1
 type: Opaque
@@ -2665,11 +2665,17 @@ metadata:
   name: transition-operator-controller-manager-metrics-service
   namespace: transition-operator-system
 spec:
+  type: NodePort
   ports:
   - name: https
     port: 8443
     protocol: TCP
     targetPort: 8443
+  - name: heartbeat
+    port: 8090
+    protocol: TCP
+    targetPort: 8090
+    nodePort: 30092
   selector:
     app.kubernetes.io/name: transition-operator
     control-plane: controller-manager
