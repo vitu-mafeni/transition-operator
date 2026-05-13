@@ -65,6 +65,25 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+
+        envFrom:
+          - secretRef:
+              name: minio-secret
+
+          - secretRef:
+              name: registry-secret
+
+          - secretRef:
+              name: git-secret
+
+        env:
+          - name: HEARTBEAT_FAULT_DELAY
+            value: "20"
+
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
         ports:
         - containerPort: 8443
           name: https

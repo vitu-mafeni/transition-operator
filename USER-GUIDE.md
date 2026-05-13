@@ -154,7 +154,7 @@ runc --version
 
 ```bash
 nano /etc/default/kubelet
-# Append or merge the following flag (or use your distro's kubelet drop-in)
+# Append or merge the following flag (or use your distro's kubelet drop-in), space separated example; KUBELET_EXTRA_ARGS="--arg1=value1 --arg2=value2"
 KUBELET_EXTRA_ARGS="--feature-gates=ContainerCheckpoint=true"
 ```
 
