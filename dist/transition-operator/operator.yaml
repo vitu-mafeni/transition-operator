@@ -2380,6 +2380,30 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - cluster.x-k8s.io
+  resources:
+  - clusters
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -2607,20 +2631,11 @@ metadata:
   name: transition-operator-controller-manager-metrics-service
   namespace: transition-operator-system
 spec:
-  type: NodePort
   ports:
-    - name: https
-      port: 8443
-      protocol: TCP
-      targetPort: 8443
-      nodePort: 30443
-
-    - name: heartbeat
-      port: 8090
-      protocol: TCP
-      targetPort: 8090
-      nodePort: 30090
-
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
   selector:
     app.kubernetes.io/name: transition-operator
     control-plane: controller-manager
