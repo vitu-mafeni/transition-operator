@@ -2710,6 +2710,8 @@ spec:
         - --health-probe-bind-address=:8081
         command:
         - /manager
+
+
         env:
         - name: MINIO_ENDPOINT
           valueFrom:
@@ -2794,17 +2796,24 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         resources:
-          limits:
-            cpu: 500m
-            memory: 128Mi
           requests:
-            cpu: 10m
-            memory: 64Mi
+            cpu: 100m
+            memory: 256Mi
+            ephemeral-storage: 2Gi
+          limits:
+            cpu: 1
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+
         securityContext:
-          allowPrivilegeEscalation: false
+          privileged: true
+          runAsUser: 0
+          runAsGroup: 0
+          allowPrivilegeEscalation: true
           capabilities:
-            drop:
-            - ALL
+            add:
+            - SYS_ADMIN
+
         volumeMounts: []
       securityContext:
         runAsNonRoot: true
@@ -2812,4 +2821,17 @@ spec:
           type: RuntimeDefault
       serviceAccountName: transition-operator-controller-manager
       terminationGracePeriodSeconds: 10
-      volumes: []
+      volumes:
+      - name: tmp-storage
+        emptyDir: {}
+
+      - name: var-tmp-storage
+        emptyDir: {}
+
+      - name: storage
+        emptyDir:
+          sizeLimit: 10Gi
+
+      - name: containers-storage
+        emptyDir:
+          sizeLimit: 20Gi
