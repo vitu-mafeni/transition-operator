@@ -1,5 +1,5 @@
 ## transition-operator
-Check user guide step by step [HERE](docs/user-guide.md)
+Check user guide step by step [HERE](docs/user-manual.md)
 ## Description
 // This is a stateful migration controller used to transition applications from one cluster/cloud to another withour losing the state of the application.
 
