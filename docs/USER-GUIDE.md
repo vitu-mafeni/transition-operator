@@ -6,6 +6,7 @@ The guide is organized into two main parts:
 
 1. **Installation and Infrastructure Setup** — covers environment prerequisites, cluster preparation, operator deployment, and storage and network configuration.
 2. **Testing Procedures** — demonstrates how to trigger a migration, verify checkpoint and restore steps, and evaluate service continuity during failover or planned transitions.
+3. **Recovery workflow** - the recovery workflow is described [HERE](recovery-flow.md)
 
 ---
 

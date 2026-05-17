@@ -1,5 +1,5 @@
 
-## 🔁 Kubernetes Recovery Operator – Logic Flow
+## Kubernetes Recovery Operator – Logic Flow
 
 ```text
 [ Start recovery loop ]
@@ -158,56 +158,3 @@
     requeue after policy.LongInterval   # e.g. 5m
   ```
 
-## Create a secret with your Gitea credentials
-```bash
-kubectl create secret generic git-user-secret \
-  --from-literal=username=nephio \
-  --from-literal=password=secret \
-  -n default
-```
-## Create gitea environment variables
-```bash
-export GIT_SERVER_URL="http://192.168.28.105:32717"
-export GIT_SECRET_NAME="git-user-secret"
-export GIT_SECRET_NAMESPACE="default"
-export POD_NAMESPACE="default"
-```
-## Create minio environment variables
-```bash
-export  MINIO_ENDPOINT="192.168.28.111:30350"
-export  MINIO_ACCESS_KEY="nephio1234"
-export  MINIO_SECRET_KEY="secret1234"
-export  MINIO_BUCKET="checkpoints"
-
-apt-install buildah -y
-```
-
-## Set docker registry environment variables
-```bash
-export REPOSITORY=vitu1
-export SECRET_NAME_REF=reg-credentials
-export SECRET_NAMESPACE_REF=default
-export REGISTRY_URL="docker.io"
-
-```
-
-## set heartbeat failure time delay
-```bash
-export HEARTBEAT_FAULT_DELAY=20
-```
-
-// tested with single container
-
-
-```text
-transition working - cilium CNI
-```
-
-
-create registry secret and checkpoint-sa on each workload cluster
-only restores one pod at a time
-
----
-* If cannot access checkpoint node API, take it as fault and migrate
-* The status/condition should be a list, so if current checkpoint has issues, we should get last known checkpoint
-* 
