@@ -54,7 +54,7 @@ The following dependencies are required on the local machine:
 **Steps:**
 
 1. Set up Ansible as described in [these docs](https://github.com/vitu-mafeni/nephio-test-infra-aws/blob/master/docs/pre-setup.md).
-2. Clone [this repository](https://github.com/vitu-mafeni/nephio-test-infra-aws.git) and navigate to `e2e/provision`:
+2. Clone - use company-version branch - [this repository](https://github.com/vitu-mafeni/nephio-test-infra-aws.git) and navigate to `e2e/provision`:
 3. Set the Azure, Gitea, and Docker Hub environment variables in `e2e/provision/set-env`, then run:
 
 ```bash
