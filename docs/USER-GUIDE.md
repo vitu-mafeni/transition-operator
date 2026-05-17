@@ -21,6 +21,7 @@ The guide is organized into two main parts:
 > **Important:** Source and destination clusters must run identical versions of kubelet, containerd, CRIU, and runc.
 > This guide was validated between AWS and Azure public clouds, but the procedure should apply similarly to other cloud providers.
 
+
 ---
 
 ### 2. Prerequisites
