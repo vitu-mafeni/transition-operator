@@ -1,7 +1,7 @@
 ## transition-operator
-Check user guide step by step [HERE](USER-GUIDE.md)
+Check user guide step by step [HERE](docs/USER-GUIDE.md)
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+// This is a stateful migration controller used to transition applications from one cluster/cloud to another withour losing the state of the application.
 
 ## Getting Started
 
